@@ -1,0 +1,12 @@
+{
+  "name": "PATH Mobile",
+  "description": "AI-powered clinical documentation assistant for PATH teammates, featuring smart camera scanning for data entry.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "AI-powered data extraction",
+    "Clinical documentation forms",
+    "Offline support"
+  ]
+}

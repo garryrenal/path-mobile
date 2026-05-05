@@ -1,0 +1,38 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Global Helpers
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    // Users
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isOwner(userId);
+    }
+
+    // Patients
+    match /patients/{patientId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && incoming().mrn is string;
+      allow update: if isSignedIn();
+    }
+
+    // Treatments
+    match /treatments/{treatmentId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && incoming().teammateId == request.auth.uid;
+      allow update: if isSignedIn() && 
+                      existing().status != 'submitted' && 
+                      existing().teammateId == request.auth.uid;
+    }
+  }
+}

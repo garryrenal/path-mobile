@@ -1,0 +1,87 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Global Helpers
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isVerified() { return request.auth.token.email_verified == true; }
+
+    // Users
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isOwner(userId) && isValidUser(incoming());
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email']) && 
+             data.uid == request.auth.uid &&
+             data.email is string && data.email.size() <= 256;
+    }
+
+    // Patients
+    match /patients/{patientId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidPatient(incoming());
+      allow update: if isSignedIn() && isValidPatient(incoming()) && (
+        incoming().diff(existing()).affectedKeys().hasOnly(['firstName', 'lastName', 'dob', 'gender', 'allergies'])
+      );
+    }
+
+    function isValidPatient(data) {
+      return data.mrn is string && data.mrn.size() <= 64 &&
+             data.firstName is string && data.firstName.size() <= 128 &&
+             data.lastName is string && data.lastName.size() <= 128 &&
+             (!('dob' in data) || data.dob is string);
+    }
+
+    // Hemodialysis Treatments
+    match /patients/{patientId}/hemodialysis/{treatmentId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidHD(incoming()) && patientId == incoming().patientId;
+      allow update: if isSignedIn() && isValidHD(incoming()) && (
+        // Allow updating status and vitals
+        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'vitals', 'updatedAt', 'notes'])
+      ) && existing().status != 'submitted'; // Terminal state lock
+    }
+
+    function isValidHD(data) {
+      return data.patientId is string && data.teammateId == request.auth.uid &&
+             data.status in ['pre', 'tx', 'post', 'submitted'] &&
+             data.visitDate is string;
+    }
+
+    // Apheresis Treatments
+    match /patients/{patientId}/apheresis/{treatmentId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidApheresis(incoming()) && patientId == incoming().patientId;
+      allow update: if isSignedIn() && isValidApheresis(incoming()) && (
+        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'mode', 'replacementVolume'])
+      ) && existing().status != 'submitted';
+    }
+
+    function isValidApheresis(data) {
+      return data.patientId is string && data.teammateId == request.auth.uid &&
+             data.status in ['pre', 'tx', 'post', 'submitted'];
+    }
+
+    // NTS Services
+    match /patients/{patientId}/nts/{serviceId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidNTS(incoming());
+      allow update: if isSignedIn() && isValidNTS(incoming()) && existing().status != 'submitted';
+    }
+
+    function isValidNTS(data) {
+      return data.patientId is string && data.teammateId == request.auth.uid &&
+             data.status in ['active', 'submitted'];
+    }
+  }
+}
