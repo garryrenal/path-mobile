@@ -16,48 +16,54 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ modality, scanType = 'all
 
   const compressImage = (file: File): Promise<{ base64: string, previewUrl: string }> => {
     return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = (event) => {
-        const img = new Image();
-        img.src = event.target?.result as string;
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 1200; 
-          const MAX_HEIGHT = 1200;
-          let width = img.width;
-          let height = img.height;
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
+      
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 1200; 
+        const MAX_HEIGHT = 1200;
+        let width = img.width;
+        let height = img.height;
 
-          if (width > height) {
-            if (width > MAX_WIDTH) {
-              height *= MAX_WIDTH / width;
-              width = MAX_WIDTH;
-            }
-          } else {
-            if (height > MAX_HEIGHT) {
-              width *= MAX_HEIGHT / height;
-              height = MAX_HEIGHT;
-            }
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
           }
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          ctx?.drawImage(img, 0, 0, width, height);
-          const previewUrl = canvas.toDataURL('image/jpeg', 0.8);
-          const base64 = previewUrl.split(',')[1];
-          resolve({ base64, previewUrl });
-        };
-        img.onerror = reject;
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, width, height);
+        const previewUrl = canvas.toDataURL('image/jpeg', 0.8);
+        const base64 = previewUrl.split(',')[1];
+        resolve({ base64, previewUrl });
       };
-      reader.onerror = reject;
+      
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error("Failed to load image"));
+      };
+      
+      img.src = objectUrl;
     });
   };
+
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setIsScanning(true);
+    setErrorMsg(null);
     try {
       const { base64, previewUrl } = await compressImage(file);
       setPreview(previewUrl);
@@ -70,7 +76,6 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ modality, scanType = 'all
       
       let errorMessage = "Failed to extract data.";
       if (error instanceof Error) {
-        // If it's a JSON string error from Gemini, try to make it readable
         if (error.message.includes('{"error"')) {
            try {
              const parsed = JSON.parse(error.message);
@@ -84,7 +89,7 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ modality, scanType = 'all
           errorMessage = error.message;
         }
       }
-      alert(errorMessage);
+      setErrorMsg(errorMessage);
     } finally {
       setIsScanning(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -103,16 +108,24 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ modality, scanType = 'all
             <Camera className="w-6 h-6" />
           </div>
           <span className="text-xs font-bold uppercase tracking-wider">Scan Bracelet/Monitor</span>
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            onChange={handleFileChange} 
-            accept="image/*" 
-            capture="environment" 
-            className="hidden" 
-          />
         </button>
+        <input 
+          type="file" 
+          ref={fileInputRef} 
+          onChange={handleFileChange} 
+          onClick={(e) => e.stopPropagation()}
+          accept="image/*" 
+          capture="environment" 
+          className="hidden" 
+        />
       </div>
+      
+      {errorMsg && (
+        <div className="p-3 bg-red-50 text-red-700 text-xs font-medium rounded-xl border border-red-100 flex items-start gap-2">
+           <span className="shrink-0 leading-tight block uppercase tracking-wider font-bold">Error:</span>
+           <span className="leading-tight">{errorMsg}</span>
+        </div>
+      )}
 
       <AnimatePresence>
         {isScanning && (

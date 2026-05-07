@@ -21,9 +21,10 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Hospital } from '../App';
-import { db } from '../lib/firebase';
+import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import CameraScanner from '../components/CameraScanner';
+import { logAuditAction, AuditOperation } from '../services/auditService';
 
 interface TreatmentWizardProps {
   treatment: { modality: string; patient: any };
@@ -48,6 +49,7 @@ const SUBTABS_CONFIG: any = {
   'PD': [
     { title: 'PD Tx Initiation Visit', icon: <Activity /> },
     { title: 'PD Support Visit', icon: <Stethoscope /> },
+    { title: 'Time Out Safety Check', icon: <ShieldCheck /> },
     { title: 'PD Tx Completion Visit', icon: <CheckCircle2 /> },
     { title: 'Review & Submit', icon: <CheckCircle2 /> }
   ],
@@ -68,6 +70,7 @@ const SUBTABS_CONFIG: any = {
     { title: 'Order', icon: <FileText /> },
     { title: 'Wait Time', icon: <Clock /> },
     { title: 'Patient Education', icon: <BookOpen /> },
+    { title: 'Time Out Safety Check', icon: <ShieldCheck /> },
     { title: 'Non-Treatment Service', icon: <ClipboardList /> },
     { title: 'Review & Submit', icon: <CheckCircle2 /> }
   ]
@@ -76,6 +79,7 @@ const SUBTABS_CONFIG: any = {
 const TreatmentWizard: React.FC<TreatmentWizardProps> = ({ treatment, hospital, onClose }) => {
   const [activeTabIdx, setActiveTabIdx] = useState(0);
   const [extractionPreview, setExtractionPreview] = useState<any[] | null>(null);
+  const [patientMismatch, setPatientMismatch] = useState<string | null>(null);
   const [formData, setFormData] = useState<any>({
     mrn: treatment.patient.mrn || '',
     csn: treatment.patient.csn || '',
@@ -118,13 +122,65 @@ const TreatmentWizard: React.FC<TreatmentWizardProps> = ({ treatment, hospital, 
     treatmentDate: treatment.patient.dialysisOrder?.treatmentDate || '',
     orderDateTime: treatment.patient.dialysisOrder?.orderDateTime || '',
     // Labs pre-fill
-    hbsag: treatment.patient.labResults?.hbsag || '',
-    hbsagDate: treatment.patient.labResults?.hbsagDate || '',
-    hbsab: treatment.patient.labResults?.hbsab || '',
-    hbsabDate: treatment.patient.labResults?.hbsabDate || '',
+    hbsag: treatment.patient.labResults?.hbsag || treatment.patient.hbsag || '',
+    hbsagDate: treatment.patient.labResults?.hbsagDate || treatment.patient.hbsagDate || '',
+    hbsab: treatment.patient.labResults?.hbsab || treatment.patient.hbsab || '',
+    hbsabDate: treatment.patient.labResults?.hbsabDate || treatment.patient.hbsabDate || '',
     location: treatment.patient.location || '',
     diagnosis: treatment.patient.diagnosis || '',
     admittedDate: treatment.patient.admittedDate || '',
+    // Assessment
+    loc: '',
+    orientedTo: '',
+    neurologySpeech: '',
+    respiratoryBreathingPattern: '',
+    respiratoryBreathSoundsClear: 'Yes',
+    respiratoryChestExpansion: 'Equal',
+    respiratoryTubesDrainsAirways: '',
+    respiratoryCough: 'None',
+    cardiacVasopressors: 'No',
+    cardiacHeartSounds: 'Regular',
+    cardiacRhythm: 'Regular',
+    giAbdomen: treatment.patient.giAbdomen || '',
+    giBowelSounds: treatment.patient.giBowelSounds || '',
+    giSymptoms: treatment.patient.giSymptoms || '',
+    giTubesDrains: treatment.patient.giTubesDrains || '',
+    skinStatus: 'Warm, Dry',
+    skinFindings: 'None',
+    skinFindingsLocation: '',
+    edemaStatus: 'None',
+    painScore: '0',
+    painLocation: '',
+    painQuality: '',
+    painAction: '',
+    breath: 'Clear',
+    // Equipment
+    roManufacturer: 'Millenium',
+    roSerialNumber: '1323546',
+    totalChlorinePrimary: 'Yes',
+    waterDate: new Date().toISOString().split('T')[0],
+    waterTime: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
+    machineManufacturer: 'FMC',
+    machineSerialNumber: '212515',
+    dialysatePH: '7.0',
+    machineDialysateTemp: '36.5',
+    machineConductivity: '13.8',
+    meterConductivity: '14',
+    alarmPHTPassed: 'Yes',
+    alarmTestDate: new Date().toISOString().split('T')[0],
+    alarmTestTime: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
+    dialyzerLotNumber: 'C214346',
+    dialyzerExpirationDate: '2025-12-31',
+    tubingLotNumber: '3157890',
+    tubingExpirationDate: '2025-12-31',
+    equipmentNote: '',
+    // Time Out
+    timeOutPatientIdConfirmed: false,
+    timeOutProcedureConfirmed: false,
+    timeOutSiteConfirmed: false,
+    timeOutEquipmentChecked: false,
+    timeOutCompletedBy: '',
+    timeOutTime: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
     // Treatment Monitoring
     monitoringEntries: [
       {
@@ -136,7 +192,6 @@ const TreatmentWizard: React.FC<TreatmentWizardProps> = ({ treatment, hospital, 
         resp: '',
         sao2: '',
         temp: '',
-        tempUnit: 'Fahrenheit',
         bfr: '',
         dfr: '',
         ap: '',
@@ -157,9 +212,9 @@ const TreatmentWizard: React.FC<TreatmentWizardProps> = ({ treatment, hospital, 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Helper to normalize time to 24H HH:mm format for input type="time"
-  const normalizeTime = (timeStr: string) => {
+  const normalizeTime = (timeStr: any) => {
     if (!timeStr) return '';
-    const clean = timeStr.trim().toLowerCase();
+    const clean = String(timeStr).trim().toLowerCase();
     
     // If it's already HH:mm
     if (/^\d{2}:\d{2}$/.test(clean)) return clean;
@@ -184,70 +239,136 @@ const TreatmentWizard: React.FC<TreatmentWizardProps> = ({ treatment, hospital, 
     return clean;
   };
 
+  // Helper to normalize date to YYYY-MM-DD
+  const normalizeDate = (dateStr: any) => {
+    if (!dateStr) return new Date().toISOString().split('T')[0];
+    const clean = String(dateStr).trim();
+    
+    // If it's already YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean;
+    
+    try {
+      const d = new Date(clean);
+      if (!isNaN(d.getTime())) {
+        return d.toISOString().split('T')[0];
+      }
+    } catch (e) {
+      console.warn("Date normalization failed for:", dateStr);
+    }
+    return clean;
+  };
+
+  const tabs = SUBTABS_CONFIG[treatment.modality] || [];
+
+  const validatePatient = (extractedName: any) => {
+    if (!extractedName) return;
+    const extracted = String(extractedName).toLowerCase().trim();
+    const lastName = (treatment.patient?.lastName || '').toLowerCase().trim();
+    const firstName = (treatment.patient?.firstName || '').toLowerCase().trim();
+    
+    // Heuristic check: if extracted doesn't contain first or last name
+    if (lastName && firstName && !extracted.includes(lastName) && !extracted.includes(firstName)) {
+        setPatientMismatch(extractedName);
+    } else if (lastName && !extracted.includes(lastName)) {
+        setPatientMismatch(extractedName);
+    } else if (firstName && !extracted.includes(firstName)) {
+        setPatientMismatch(extractedName);
+    } else {
+        setPatientMismatch(null);
+    }
+  };
+
   const handleExtraction = (data: any) => {
     console.log("Extracted Data Received:", data);
     const updates: any = {};
     
-    // Check if we have monitoring entries from a flowsheet
-    let extractedEntries = data.monitoringEntries;
-    if (!extractedEntries && Array.isArray(data)) extractedEntries = data;
-    if (!extractedEntries && data.vitals && Array.isArray(data.vitals)) extractedEntries = data.vitals;
-    if (!extractedEntries && data.items && Array.isArray(data.items)) extractedEntries = data.items;
-    if (!extractedEntries && data.monitoring && Array.isArray(data.monitoring)) extractedEntries = data.monitoring;
-    if (!extractedEntries && data.flowsheet && Array.isArray(data.flowsheet)) extractedEntries = data.flowsheet;
+    // Prioritized Tab Switching: Monitoring > Order > Patient
+    if (data.monitoringEntries && Array.isArray(data.monitoringEntries) && data.monitoringEntries.length > 0) {
+      console.log("Found monitoring entries:", data.monitoringEntries.length);
+      
+      // Auto-switch to flowsheet tab
+      const monitoringTabIdx = tabs.findIndex((t: any) => 
+        t.title === 'Tx Monitoring & Administrations' || t.title === 'Treatment'
+      );
+      if (monitoringTabIdx !== -1) {
+        setActiveTabIdx(monitoringTabIdx);
+      }
 
-    if (extractedEntries && Array.isArray(extractedEntries) && extractedEntries.length > 0) {
-      console.log("Found monitoring entries:", extractedEntries.length);
+      // Check for patient name mismatch in monitoring entries (assuming it might be duplicated or unique to the scan)
+      const monitoringPatientName = data.monitoringEntries.find((e: any) => e.patientName)?.patientName;
+      if (monitoringPatientName) {
+        validatePatient(monitoringPatientName);
+      }
       
       // Filter valid entries
-      const entries = extractedEntries.map((e: any) => {
-        const lowerCaseEntry: any = {};
-        if (typeof e === 'object' && e !== null) {
-            for (const k in e) {
-                lowerCaseEntry[k.toLowerCase()] = e[k];
-            }
-        }
-        return lowerCaseEntry;
-      }).filter((e: any) => 
-        e.time || e.bp || e.pulse || e.hr || e.temp || e.resp || e.sao2 || e.spo2 || e.bfr || e.ufr || e.map || e.date
+      const entries = data.monitoringEntries.filter((e: any) => 
+        e.bp || e.pulse || e.hr || e.temp || e.resp || e.sao2 || e.spo2 || e.bfr || e.ufr
       ).map((e: any) => {
         // Map common aliases
         const normalized: any = { ...e };
         if (e.hr && !e.pulse) normalized.pulse = e.hr;
         if (e.spo2 && !e.sao2) normalized.sao2 = e.spo2;
+        if (e.notes && !e.note) normalized.note = e.notes;
+        if (e.vp && !normalized.vp) normalized.vp = e.vp;
+        if (e.ap && !normalized.ap) normalized.ap = e.ap;
+        if (e.tmp && !normalized.tmp) normalized.tmp = e.tmp;
+        if (e.dfr && !normalized.dfr) normalized.dfr = e.dfr;
+        if (e.map && !normalized.map) normalized.map = e.map;
         
-        // Normalize time
+        // Normalize time and date
         normalized.time = normalizeTime(e.time);
+        normalized.date = normalizeDate(e.date);
         
-        // Apply temperature logic if unit wasn't provided but value was
-        let tempUnit = normalized.tempUnit;
-        if (normalized.temp && !tempUnit) {
-          const t = parseFloat(normalized.temp);
-          if (t < 50) tempUnit = 'C';
-          if (t > 80) tempUnit = 'F';
-        }
-        normalized.tempUnit = tempUnit || 'F';
+        // Apply temperature logic if value was provided - removed unit logic
         normalized.selected = true;
         return normalized;
       });
 
-      // Merge entries with exact same time to avoid duplicates
+      // Merge entries with exact same time to avoid duplicates and redundant cards
       const mergedMap = new Map();
       entries.forEach(e => {
-        const timeKey = e.time || 'unknown';
+        if (!e.time || e.time === 'unknown') return; // Skip entries without valid time
+        
+        const timeKey = e.time;
         if (mergedMap.has(timeKey)) {
+          // Merge data - this combines fields if they were split across multiple extractions for same time
           mergedMap.set(timeKey, { ...mergedMap.get(timeKey), ...e });
         } else {
           mergedMap.set(timeKey, e);
         }
       });
       
-      const validEntries = Array.from(mergedMap.values());
+      const validEntries = Array.from(mergedMap.values()).sort((a: any, b: any) => {
+        // Sort by date first, then by time
+        const dateA = String(a.date || '');
+        const dateB = String(b.date || '');
+        if (dateA !== dateB) return dateA.localeCompare(dateB);
+        
+        const timeA = String(a.time || '');
+        const timeB = String(b.time || '');
+        return timeA.localeCompare(timeB);
+      });
       
       if (validEntries.length > 0) {
         console.log("Setting extraction preview with valid entries:", validEntries.length);
         setExtractionPreview(validEntries);
       }
+    } else if (data.dialysisOrder) {
+        // Auto-switch to Order tab
+        const orderTabIdx = tabs.findIndex((t: any) => t.title === 'Order');
+        if (orderTabIdx !== -1) {
+            setActiveTabIdx(orderTabIdx);
+        }
+    } else if (data.patient) {
+        // Auto-switch to Patient Details tab
+        const patientTabIdx = tabs.findIndex((t: any) => t.title === 'Patient Details');
+        if (patientTabIdx !== -1) {
+            setActiveTabIdx(patientTabIdx);
+        }
+
+        if (data.patient.name) {
+            validatePatient(data.patient.name);
+        }
     }
 
     if (data.patient) {
@@ -265,11 +386,31 @@ const TreatmentWizard: React.FC<TreatmentWizardProps> = ({ treatment, hospital, 
                 }
             }
             // Map Hep B markers
-            if (key === 'hbsag') updates.hbsag = val;
+            if (key === 'hbsag') {
+                if (typeof val === 'string') {
+                    const lval = val.toLowerCase();
+                    if (lval.includes('negative')) updates.hbsag = 'Negative';
+                    else if (lval.includes('positive')) updates.hbsag = 'Positive';
+                    else if (lval.includes('unknown')) updates.hbsag = 'Unknown';
+                    else updates.hbsag = val;
+                } else {
+                    updates.hbsag = val;
+                }
+            }
             if (key === 'hbsagDate') updates.hbsagDate = val;
-            if (key === 'hbsab') updates.hbsab = val;
+            if (key === 'hbsab') {
+                if (typeof val === 'string') {
+                    const lval = val.toLowerCase();
+                    if (lval.includes('negative')) updates.hbsab = 'Susceptible <10';
+                    else if (lval.includes('positive')) updates.hbsab = 'Immune >10';
+                    else if (lval.includes('unknown')) updates.hbsab = 'Unknown';
+                    else updates.hbsab = val;
+                } else {
+                    updates.hbsab = val;
+                }
+            }
             if (key === 'hbsabDate') updates.hbsabDate = val;
-            updates[key] = val;
+            if (!['hbsag', 'hbsagDate', 'hbsab', 'hbsabDate'].includes(key)) updates[key] = val;
         });
 
         // Cross-pollinate attending/ordering physician if one is missing
@@ -338,18 +479,27 @@ const TreatmentWizard: React.FC<TreatmentWizardProps> = ({ treatment, hospital, 
         if (rawJson.includes('puf') && !updates.orderType) {
             updates.orderType = 'PUF';
         }
+
+        // Check for patient name mismatch
+        if (data.dialysisOrder.patientName) {
+            validatePatient(data.dialysisOrder.patientName);
+        }
     }
 
     if (Object.keys(updates).length > 0) {
         console.log("Applying Updates to Form State:", updates);
         updates._aiExtracted = true;
-        setFormData((prev: any) => ({ ...prev, ...updates }));
+        setFormData((prev: any) => {
+            const next = { ...prev, ...updates };
+            // Ensure orderType is synchronized if switching to dialysis tabs
+            if (updates.orderType) next.orderType = updates.orderType;
+            return next;
+        });
     } else {
         console.warn("AI extraction returned no valid updates.");
     }
   };
 
-  const tabs = SUBTABS_CONFIG[treatment.modality] || [];
   const currentTab = tabs[activeTabIdx];
 
   const handleNext = () => {
@@ -362,21 +512,35 @@ const TreatmentWizard: React.FC<TreatmentWizardProps> = ({ treatment, hospital, 
 
   const handleSubmit = async () => {
     setIsSubmitting(true);
+    const path = 'treatments';
     try {
-      await addDoc(collection(db, 'treatments'), {
+      if (!auth.currentUser) throw new Error('User not authenticated');
+
+      const docRef = await addDoc(collection(db, path), {
         modality: treatment.modality,
         hospitalId: hospital.id,
-        teammateId: 'user_fixed_for_now', // Real app uses auth.currentUser.uid
+        teammateId: auth.currentUser.uid,
         status: 'submitted',
         patientDetails: treatment.patient,
         data: formData,
         createdAt: serverTimestamp(),
       });
+
+      logAuditAction({
+        operation: AuditOperation.CREATE,
+        collectionName: path,
+        documentId: docRef.id,
+        details: { modality: treatment.modality, hospitalId: hospital.id }
+      });
+
       alert('Documentation submitted successfully!');
       onClose();
-    } catch (e) {
-      console.error(e);
-      alert('Submission failed.');
+    } catch (error) {
+      try {
+        handleFirestoreError(error, OperationType.CREATE, path);
+      } catch (err: any) {
+        alert("Failed to submit: " + (error instanceof Error ? error.message : "Permissions error"));
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -389,14 +553,13 @@ const TreatmentWizard: React.FC<TreatmentWizardProps> = ({ treatment, hospital, 
         <div className="flex overflow-x-auto no-scrollbar px-4 pt-4">
           {tabs.map((tab: any, idx: number) => (
             <button
-              type="button"
               key={tab.title}
               onClick={() => setActiveTabIdx(idx)}
               className={`flex flex-col items-center gap-2 px-6 pb-3 min-w-[120px] transition-all relative
                 ${activeTabIdx === idx ? 'text-brand-primary' : 'text-slate-400 opacity-60'}`}
             >
               <div className={`p-2 rounded-xl transition-colors ${activeTabIdx === idx ? 'bg-brand-primary/10' : ''}`}>
-                {React.cloneElement(tab.icon, { className: 'w-5 h-5' })}
+                {React.cloneElement(tab.icon as React.ReactElement<any>, { className: 'w-5 h-5' })}
               </div>
               <span className="text-[10px] font-black uppercase tracking-widest text-center">{tab.title}</span>
               {activeTabIdx === idx && (
@@ -442,7 +605,6 @@ const TreatmentWizard: React.FC<TreatmentWizardProps> = ({ treatment, hospital, 
                             </div>
                             
                             <button 
-                                type="button"
                                 onClick={handleSubmit}
                                 disabled={isSubmitting}
                                 className="w-full btn-primary py-6 rounded-[2rem] text-xl font-black shadow-2xl flex items-center justify-center gap-3 disabled:opacity-50"
@@ -461,6 +623,8 @@ const TreatmentWizard: React.FC<TreatmentWizardProps> = ({ treatment, hospital, 
                         onDataExtracted={handleExtraction}
                         extractionPreview={extractionPreview}
                         setExtractionPreview={setExtractionPreview}
+                        patientMismatch={patientMismatch}
+                        setPatientMismatch={setPatientMismatch}
                         onChange={(key: string, val: any) => setFormData(prev => ({...prev, [key]: val}))}
                     />
                 )}
@@ -470,7 +634,6 @@ const TreatmentWizard: React.FC<TreatmentWizardProps> = ({ treatment, hospital, 
 
       <div className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-xl border-t border-slate-200 p-4 sm:p-6 flex items-center justify-between z-40 max-w-5xl mx-auto rounded-t-[3rem] shadow-[0_-20px_50px_-12px_rgba(0,0,0,0.1)]">
         <button 
-            type="button"
             onClick={handlePrev}
             disabled={activeTabIdx === 0}
             className="flex items-center gap-2 px-6 py-4 font-bold text-slate-400 hover:text-slate-900 disabled:opacity-20 transition-all"
@@ -486,7 +649,6 @@ const TreatmentWizard: React.FC<TreatmentWizardProps> = ({ treatment, hospital, 
         </div>
 
         <button 
-            type="button"
             onClick={handleNext}
             disabled={activeTabIdx === tabs.length - 1}
             className="btn-primary"
@@ -499,12 +661,48 @@ const TreatmentWizard: React.FC<TreatmentWizardProps> = ({ treatment, hospital, 
   );
 };
 
+
+const PatientMismatchAlert = ({ patientMismatch, setPatientMismatch, treatment }: any) => {
+    return (
+        <AnimatePresence>
+            {patientMismatch && (
+                <motion.div 
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="overflow-hidden"
+                >
+                    <div className="p-6 bg-red-50 border-2 border-red-200 rounded-3xl flex items-start gap-4 shadow-lg shadow-red-100 mb-6 animate-pulse">
+                        <div className="p-3 bg-red-100 rounded-2xl text-red-600">
+                            <AlertTriangle className="w-6 h-6" />
+                        </div>
+                        <div className="space-y-1">
+                            <h4 className="text-sm font-black text-red-900 uppercase tracking-tight">Patient Mismatch Detected!</h4>
+                            <p className="text-xs text-red-700 font-bold">
+                                The scanned documentation belongs to <span className="underline underline-offset-4 decoration-skip-ink-none decoration-2">{patientMismatch}</span>, but the active patient is <span className="underline underline-offset-4 decoration-skip-ink-none decoration-2">{treatment.patient.lastName}, {treatment.patient.firstName}</span>.
+                            </p>
+                            <p className="text-[10px] text-red-500 font-medium italic mt-2">Please verify you are scanning the correct documentation for the current treatment.</p>
+                            <button 
+                                onClick={() => setPatientMismatch(null)}
+                                className="mt-3 text-[9px] font-black uppercase tracking-widest text-red-400 hover:text-red-600 transition-colors"
+                            >
+                                Dismiss Warning
+                            </button>
+                        </div>
+                    </div>
+                </motion.div>
+            )}
+        </AnimatePresence>
+    );
+};
+
 // Simplified dynamic form content generator
-const GenericTabContent = ({ title, modality, formData, onChange, setFormData, treatment, onDataExtracted, extractionPreview, setExtractionPreview }: any) => {
+const GenericTabContent = ({ title, modality, formData, onChange, setFormData, treatment, onDataExtracted, extractionPreview, setExtractionPreview, patientMismatch, setPatientMismatch }: any) => {
     // Specialized content for certain key tabs
     if (title === 'Patient Details') {
         return (
             <div className="space-y-8 pb-24">
+                <PatientMismatchAlert patientMismatch={patientMismatch} setPatientMismatch={setPatientMismatch} treatment={treatment} />
                 <div className="flex items-center justify-between bg-slate-50 p-6 rounded-[2rem] border border-slate-100">
                     <div>
                         <h4 className="text-[10px] uppercase font-black tracking-[0.2em] text-slate-400 mb-1">AI Capture</h4>
@@ -522,31 +720,44 @@ const GenericTabContent = ({ title, modality, formData, onChange, setFormData, t
                         onDataExtracted={onDataExtracted} 
                     />
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
-                    <Field label="Medical Record Number (MRN)" value={formData.mrn} onChange={(v: any) => onChange('mrn', v)} />
-                    <Field label="Admission / Encounter Number (CSN)" value={formData.csn} onChange={(v: any) => onChange('csn', v)} />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-10">
+                    <Field label="Medical Record Number (MRN)" value={formData.mrn} onChange={(v: any) => onChange('mrn', v)} fullWidth />
+                    <Field label="Admission / Encounter Number (CSN)" value={formData.csn} onChange={(v: any) => onChange('csn', v)} fullWidth />
                     <Field label="Patient First Name" value={formData.firstName} onChange={(v: any) => onChange('firstName', v)} />
                     <Field label="Patient Last Name" value={formData.lastName} onChange={(v: any) => onChange('lastName', v)} />
-                    <Field label="Date of Birth" value={formData.dob} onChange={(v: any) => onChange('dob', v)} />
+                    <Field label="Date of Birth" value={formData.dob} onChange={(v: any) => onChange('dob', v)} fullWidth />
                     <Field label="Gender" value={formData.gender} onChange={(v: any) => onChange('gender', v)} />
                 </div>
-                <div className="col-span-full">
-                    <Field label="Known Allergies" value={formData.allergies} onChange={(v: any) => onChange('allergies', v)} className="text-red-600 font-bold" />
+                <div className="col-span-full pt-4">
+                    <Field label="Known Allergies" value={formData.allergies} onChange={(v: any) => onChange('allergies', v)} className="text-red-600 font-bold" fullWidth />
                 </div>
-                <div className="p-6 bg-slate-50 rounded-3xl space-y-4">
-                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Clinical Intake</h4>
-                    <div className="grid grid-cols-2 gap-4">
+                <div className="p-8 bg-slate-50/50 rounded-[2rem] border border-slate-100 space-y-8">
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-6">Clinical Intake</h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-10">
                         <Field label="Attending Physician" value={formData.attending} onChange={(v: any) => onChange('attending', v)} />
                         <Field label="Code Status" value={formData.codeStatus} onChange={(v: any) => onChange('codeStatus', v)} />
                         <Field label="Admitted Date" value={formData.admittedDate} onChange={(v: any) => onChange('admittedDate', v)} />
                         <Field label="Location / Bed" value={formData.location} onChange={(v: any) => onChange('location', v)} />
-                        <Field label="Diagnosis" value={formData.diagnosis} onChange={(v: any) => onChange('diagnosis', v)} fullWidth />
-                        <div className="grid grid-cols-2 gap-4 col-span-full">
-                            <Field label="HBsAg Result" value={formData.hbsag} onChange={(v: any) => onChange('hbsag', v)} />
-                            <Field label="HBsAg Date" type="date" value={formData.hbsagDate} onChange={(v: any) => onChange('hbsagDate', v)} />
+                        <div className="col-span-full">
+                            <Field label="Diagnosis" value={formData.diagnosis} onChange={(v: any) => onChange('diagnosis', v)} fullWidth />
                         </div>
-                        <div className="grid grid-cols-2 gap-4 col-span-full">
-                            <Field label="HBsAb Result" value={formData.hbsab} onChange={(v: any) => onChange('hbsab', v)} />
+                        <div className="col-span-full grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-10 mt-2">
+                            <CheckboxField 
+                                label="HBsAg Result" 
+                                options={['Negative', 'Positive', 'Unknown']} 
+                                value={formData.hbsag} 
+                                onChange={(v: any) => onChange('hbsag', v)} 
+                                columns="grid-cols-3"
+                            />
+                            <Field label="HBsAg Date" type="date" value={formData.hbsagDate} onChange={(v: any) => onChange('hbsagDate', v)} />
+                            
+                            <CheckboxField 
+                                label="HBsAb Result" 
+                                options={['Susceptible <10', 'Immune >10', 'Unknown']} 
+                                value={formData.hbsab} 
+                                onChange={(v: any) => onChange('hbsab', v)} 
+                                columns="grid-cols-3"
+                            />
                             <Field label="HBsAb Date" type="date" value={formData.hbsabDate} onChange={(v: any) => onChange('hbsabDate', v)} />
                         </div>
                     </div>
@@ -555,27 +766,65 @@ const GenericTabContent = ({ title, modality, formData, onChange, setFormData, t
         );
     }
 
+    if (title === 'Equipment' || title === 'Machine') {
+        return (
+            <div className="space-y-12 pb-24">
+                {/* Water Subsection */}
+                <div className="space-y-6">
+                    <div className="flex items-center gap-3 pb-2 border-b border-slate-100">
+                        <div className="p-2 bg-blue-50 rounded-xl text-blue-600">
+                            <Beaker className="w-5 h-5" />
+                        </div>
+                        <h3 className="text-sm font-black uppercase tracking-widest text-slate-900">Water System (RO)</h3>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
+                        <Field label="RO Manufacturer/Model" value={formData.roManufacturer} onChange={(v: any) => onChange('roManufacturer', v)} />
+                        <Field label="RO Serial Number*" value={formData.roSerialNumber} onChange={(v: any) => onChange('roSerialNumber', v)} />
+                        <Field label="Total Chlorine Primary less than 0.1 ppm*" value={formData.totalChlorinePrimary} onChange={(v: any) => onChange('totalChlorinePrimary', v)} />
+                        <div className="grid grid-cols-2 gap-4">
+                            <Field label="Date*" type="date" value={formData.waterDate} onChange={(v: any) => onChange('waterDate', v)} />
+                            <Field label="Time*" type="time" value={formData.waterTime} onChange={(v: any) => onChange('waterTime', v)} />
+                        </div>
+                    </div>
+                </div>
+
+                {/* Machine Subsection */}
+                <div className="space-y-6">
+                    <div className="flex items-center gap-3 pb-2 border-b border-slate-100">
+                        <div className="p-2 bg-slate-50 rounded-xl text-slate-600">
+                            <Settings className="w-5 h-5" />
+                        </div>
+                        <h3 className="text-sm font-black uppercase tracking-widest text-slate-900">Dialysis Machine</h3>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
+                        <Field label="Machine Manufacturer/Model" value={formData.machineManufacturer} onChange={(v: any) => onChange('machineManufacturer', v)} />
+                        <Field label="Machine Serial Number*" value={formData.machineSerialNumber} onChange={(v: any) => onChange('machineSerialNumber', v)} />
+                        <Field label="Dialysate pH*" value={formData.dialysatePH} onChange={(v: any) => onChange('dialysatePH', v)} />
+                        <Field label="Dialysate Temperature*" value={formData.machineDialysateTemp} onChange={(v: any) => onChange('machineDialysateTemp', v)} />
+                        <Field label="Machine Dialysate Conductivity Reading*" value={formData.machineConductivity} onChange={(v: any) => onChange('machineConductivity', v)} />
+                        <Field label="Conductivity Test Meter Reading*" value={formData.meterConductivity} onChange={(v: any) => onChange('meterConductivity', v)} />
+                        <Field label="Alarm/PHT Passed*" value={formData.alarmPHTPassed} onChange={(v: any) => onChange('alarmPHTPassed', v)} />
+                        <div className="grid grid-cols-2 gap-4">
+                            <Field label="Alarm Test Pass Date*" type="date" value={formData.alarmTestDate} onChange={(v: any) => onChange('alarmTestDate', v)} />
+                            <Field label="Alarm Test Pass Time*" type="time" value={formData.alarmTestTime} onChange={(v: any) => onChange('alarmTestTime', v)} />
+                        </div>
+                        <Field label="Dialyzer Lot Number*" value={formData.dialyzerLotNumber} onChange={(v: any) => onChange('dialyzerLotNumber', v)} />
+                        <Field label="Dialyzer Expiration Date*" type="date" value={formData.dialyzerExpirationDate} onChange={(v: any) => onChange('dialyzerExpirationDate', v)} />
+                        <Field label="Tubing Lot Number*" value={formData.tubingLotNumber} onChange={(v: any) => onChange('tubingLotNumber', v)} />
+                        <Field label="Tubing Expiration Date*" type="date" value={formData.tubingExpirationDate} onChange={(v: any) => onChange('tubingExpirationDate', v)} />
+                    </div>
+                </div>
+
+                <div className="pt-8 border-t border-slate-100">
+                    <Field label="Note" type="textarea" value={formData.equipmentNote} onChange={(v: any) => onChange('equipmentNote', v)} fullWidth />
+                </div>
+            </div>
+        );
+    }
+
     if (title === 'Pre-Treatment' || title === 'Pre-Tx Assessment') {
         return (
             <div className="space-y-12 pb-24">
-                <div className="flex items-center justify-between bg-slate-50 p-6 rounded-[2rem] border border-slate-100">
-                    <div>
-                        <h4 className="text-[10px] uppercase font-black tracking-[0.2em] text-slate-400 mb-1">AI Capture</h4>
-                        <p className="text-xs text-slate-500 font-medium">Scan vitals monitor or EHR screen</p>
-                    </div>
-                    <CameraScanner 
-                        modality={(() => {
-                            const m = modality.toLowerCase();
-                            if (m.includes('hemodialysis')) return 'hemodialysis';
-                            if (m.includes('apheresis')) return 'apheresis';
-                            if (m.includes('non-treatment')) return 'nts';
-                            return 'hemodialysis';
-                        })() as any} 
-                        scanType="all"
-                        onDataExtracted={onDataExtracted} 
-                    />
-                </div>
-
                 <div className="space-y-6">
                     <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Vitals</h4>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 text-slate-900">
@@ -861,7 +1110,6 @@ const GenericTabContent = ({ title, modality, formData, onChange, setFormData, t
                 resp: '',
                 sao2: '',
                 temp: '',
-                tempUnit: lastEntry.tempUnit || 'Fahrenheit',
                 bfr: lastEntry.bfr || '',
                 dfr: lastEntry.dfr || '',
                 ap: '',
@@ -890,7 +1138,6 @@ const GenericTabContent = ({ title, modality, formData, onChange, setFormData, t
             if (!extractionPreview) return;
             const selectedItems = extractionPreview.filter(i => i.selected).map(({ selected, ...rest }) => ({
                 ...rest,
-                tempUnit: rest.tempUnit || 'Fahrenheit',
                 transducerClear: true,
                 accessVisible: true,
                 status: 'Pt Awake & Alert'
@@ -899,13 +1146,27 @@ const GenericTabContent = ({ title, modality, formData, onChange, setFormData, t
             if (selectedItems.length > 0) {
                 // If the first entry is empty, remove it
                 const currentEntries = entries.length === 1 && !entries[0].bp && !entries[0].pulse ? [] : entries;
-                onChange('monitoringEntries', [...currentEntries, ...selectedItems]);
+                const mergedEntries = [...currentEntries, ...selectedItems];
+                
+                // Sort by date and time ascending
+                mergedEntries.sort((a: any, b: any) => {
+                    const dateA = a.date || '';
+                    const dateB = b.date || '';
+                    if (dateA !== dateB) return dateA.localeCompare(dateB);
+                    
+                    const timeA = a.time || '';
+                    const timeB = b.time || '';
+                    return timeA.localeCompare(timeB);
+                });
+                
+                onChange('monitoringEntries', mergedEntries);
             }
             setExtractionPreview(null);
         };
 
         return (
             <div className="space-y-8 pb-24 w-full">
+                <PatientMismatchAlert patientMismatch={patientMismatch} setPatientMismatch={setPatientMismatch} treatment={treatment} />
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
                     <div className="flex items-center gap-4">
                         <div className="p-3 bg-brand-primary/10 rounded-2xl text-brand-primary">
@@ -929,7 +1190,6 @@ const GenericTabContent = ({ title, modality, formData, onChange, setFormData, t
                             onDataExtracted={onDataExtracted} 
                         />
                         <button 
-                            type="button"
                             onClick={addEntry}
                             className="flex items-center gap-2 px-6 py-3 bg-brand-primary text-white text-[10px] font-black uppercase tracking-widest rounded-2xl shadow-lg hover:shadow-xl transition-all"
                         >
@@ -955,14 +1215,12 @@ const GenericTabContent = ({ title, modality, formData, onChange, setFormData, t
                                 </div>
                                 <div className="flex items-center gap-3">
                                     <button 
-                                        type="button"
                                         onClick={() => setExtractionPreview(null)}
                                         className="px-6 py-3 text-[10px] font-black uppercase tracking-widest text-indigo-400 hover:text-indigo-600 transition-colors"
                                     >
                                         Cancel
                                     </button>
                                     <button 
-                                        type="button"
                                         onClick={handlePreviewSave}
                                         className="px-8 py-3 bg-indigo-600 text-white text-[10px] font-black uppercase tracking-widest rounded-2xl shadow-lg hover:bg-indigo-700 transition-all"
                                     >
@@ -988,27 +1246,38 @@ const GenericTabContent = ({ title, modality, formData, onChange, setFormData, t
                                                     {item.selected && <CheckCircle2 className="w-3.5 h-3.5 text-white" />}
                                                 </div>
                                                 <div className="text-right">
-                                                    <span className="text-[9px] font-black text-slate-300 bg-slate-100 px-2 py-0.5 rounded-full uppercase tracking-tighter block mb-1">Time</span>
-                                                    <span className="text-xs font-black text-slate-700">{item.time}</span>
+                                                    <div className="flex flex-col items-end">
+                                                        <span className="text-[7px] font-black text-slate-300 uppercase tracking-tighter">{item.date}</span>
+                                                        <div className="flex flex-col items-end">
+                                                            <span className="text-[9px] font-black text-slate-300 bg-slate-100 px-2 py-0.5 rounded-full uppercase tracking-tighter block mb-1">Time</span>
+                                                            <span className="text-xs font-black text-slate-700">{item.time}</span>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             </div>
                                             <div className="grid grid-cols-2 gap-x-6 gap-y-2">
                                                 <div className="space-y-0.5">
-                                                    <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">BP</span>
-                                                    <p className="text-[11px] font-bold text-slate-800">{item.bp || '--'}</p>
-                                                </div>
-                                                <div className="space-y-0.5">
-                                                    <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">MAP</span>
-                                                    <p className="text-[11px] font-bold text-slate-800">{item.map || '--'}</p>
+                                                    <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">BP/MAP</span>
+                                                    <p className="text-[11px] font-bold text-slate-800">{(item.bp || '--')} ({item.map || '--'})</p>
                                                 </div>
                                                 <div className="space-y-0.5">
                                                     <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">HR</span>
                                                     <p className="text-[11px] font-bold text-slate-800">{item.pulse || '--'}</p>
                                                 </div>
                                                 <div className="space-y-0.5">
-                                                    <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Temp</span>
-                                                    <p className="text-[11px] font-bold text-slate-800">{item.temp || '--'}</p>
+                                                    <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">BFR/UFR</span>
+                                                    <p className="text-[11px] font-bold text-slate-800">{(item.bfr || '--')}/{(item.ufr || '--')}</p>
                                                 </div>
+                                                <div className="space-y-0.5">
+                                                    <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">AP/VP</span>
+                                                    <p className="text-[11px] font-bold text-slate-800">{(item.ap || '--')}/{(item.vp || '--')}</p>
+                                                </div>
+                                                {item.note && (
+                                                    <div className="col-span-2 mt-2 pt-2 border-t border-slate-100">
+                                                        <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest block mb-1">Note</span>
+                                                        <p className="text-[9px] font-medium text-slate-500 italic line-clamp-2">{item.note}</p>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     ))}
@@ -1073,13 +1342,7 @@ const GenericTabContent = ({ title, modality, formData, onChange, setFormData, t
                                         <input type="text" value={entry.sao2 || ''} onChange={(e) => updateEntry(idx, 'sao2', e.target.value)} className="w-full text-xs font-bold p-3 bg-slate-50 border-none rounded-xl" />
                                     </td>
                                     <td className="p-2">
-                                        <div className="flex gap-1 items-center">
-                                            <input type="number" step="0.1" value={entry.temp || ''} onChange={(e) => updateEntry(idx, 'temp', e.target.value)} className="flex-1 text-xs font-bold p-3 bg-slate-50 border-none rounded-xl [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
-                                            {/* Smart temp detection: F or C determined by value range (<50 is C, >80 is F) */}
-                                            <span className="text-[10px] font-black p-3 bg-slate-100 text-slate-400 rounded-xl min-w-[32px] text-center">
-                                                {entry.temp ? (parseFloat(entry.temp) < 50 ? 'C' : 'F') : (entry.tempUnit || 'F')}
-                                            </span>
-                                        </div>
+                                        <input type="number" step="0.1" value={entry.temp || ''} onChange={(e) => updateEntry(idx, 'temp', e.target.value)} className="w-full text-xs font-bold p-3 bg-slate-50 border-none rounded-xl [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
                                     </td>
 
                                     <td className="p-2">
@@ -1111,7 +1374,6 @@ const GenericTabContent = ({ title, modality, formData, onChange, setFormData, t
                                     </td>
                                     <td className="p-2">
                                         <button 
-                                            type="button"
                                             onClick={() => updateEntry(idx, 'transducerClear', !entry.transducerClear)}
                                             className={`w-full p-2 rounded-xl text-[10px] font-black uppercase transition-all ${entry.transducerClear ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}
                                         >
@@ -1120,7 +1382,6 @@ const GenericTabContent = ({ title, modality, formData, onChange, setFormData, t
                                     </td>
                                     <td className="p-2">
                                         <button 
-                                            type="button"
                                             onClick={() => updateEntry(idx, 'accessVisible', !entry.accessVisible)}
                                             className={`w-full p-2 rounded-xl text-[10px] font-black uppercase transition-all ${entry.accessVisible ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}
                                         >
@@ -1143,7 +1404,6 @@ const GenericTabContent = ({ title, modality, formData, onChange, setFormData, t
                                     </td>
                                     <td className="p-2">
                                         <button 
-                                            type="button"
                                             disabled={entries.length <= 1}
                                             onClick={() => removeEntry(idx)}
                                             className="p-2 text-slate-300 hover:text-red-500 transition-colors disabled:opacity-30"
@@ -1160,20 +1420,66 @@ const GenericTabContent = ({ title, modality, formData, onChange, setFormData, t
         );
     }
 
+    if (title === 'Time Out Safety Check') {
+        return (
+            <div className="space-y-8 pb-24">
+                <div className="p-8 bg-emerald-50 border border-emerald-100 rounded-[2.5rem] space-y-4">
+                    <div className="flex items-center gap-3 text-emerald-700">
+                        <ShieldCheck className="w-8 h-8" />
+                        <h3 className="text-xl font-bold uppercase tracking-tight">Procedure Time Out</h3>
+                    </div>
+                    <p className="text-xs text-emerald-600 font-medium leading-relaxed italic">
+                        Universal Protocol: Verification must be completed by the clinical team prior to initiation of any invasive procedure or treatment.
+                    </p>
+                </div>
+
+                <div className="grid gap-6">
+                    <SafetyToggle 
+                        label="Patient Identification Confirmed" 
+                        description="Two patient identifiers verified (e.g. Name, MRN, DOB)"
+                        value={formData.timeOutPatientIdConfirmed} 
+                        onChange={(v: boolean) => onChange('timeOutPatientIdConfirmed', v)} 
+                    />
+                    <SafetyToggle 
+                        label="Procedure Confirmed" 
+                        description="Verified order/consent for the correct procedure"
+                        value={formData.timeOutProcedureConfirmed} 
+                        onChange={(v: boolean) => onChange('timeOutProcedureConfirmed', v)} 
+                    />
+                    <SafetyToggle 
+                        label="Site / Access Confirmed" 
+                        description="Verified correct site, access location, or side (if applicable)"
+                        value={formData.timeOutSiteConfirmed} 
+                        onChange={(v: boolean) => onChange('timeOutSiteConfirmed', v)} 
+                    />
+                    <SafetyToggle 
+                        label="Equipment & Settings Checked" 
+                        description="Machine setup, dialyzer, bath, and clinical parameters verified"
+                        value={formData.timeOutEquipmentChecked} 
+                        onChange={(v: boolean) => onChange('timeOutEquipmentChecked', v)} 
+                    />
+                </div>
+
+                <div className="pt-8 grid grid-cols-1 sm:grid-cols-2 gap-8 border-t border-slate-100">
+                    <Field label="Time Out Completed By" value={formData.timeOutCompletedBy} onChange={(v: any) => onChange('timeOutCompletedBy', v)} />
+                    <Field label="Observation Time" type="time" value={formData.timeOutTime} onChange={(v: any) => onChange('timeOutTime', v)} />
+                </div>
+            </div>
+        );
+    }
+
     if (title === 'Order') {
         return (
             <div className="space-y-8 pb-24">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="flex bg-slate-100 p-1.5 rounded-[1.25rem] w-fit shadow-inner">
                         <button 
-                            type="button"
                             onClick={() => onChange('orderType', 'HD')}
                             className={`px-8 py-2.5 rounded-2xl text-[10px] font-black tracking-widest transition-all ${formData.orderType !== 'PUF' ? 'bg-white text-brand-primary shadow-md' : 'text-slate-400 hover:text-slate-500'}`}
                         >
                             HEMODIALYSIS (HD)
                         </button>
                         <button 
-                            type="button"
                             onClick={() => onChange('orderType', 'PUF')}
                             className={`px-8 py-2.5 rounded-2xl text-[10px] font-black tracking-widest transition-all ${formData.orderType === 'PUF' ? 'bg-white text-indigo-600 shadow-md' : 'text-slate-400 hover:text-slate-500'}`}
                         >
@@ -1206,6 +1512,9 @@ const GenericTabContent = ({ title, modality, formData, onChange, setFormData, t
                       </div>
                     </div>
                 </div>
+
+                <PatientMismatchAlert patientMismatch={patientMismatch} setPatientMismatch={setPatientMismatch} treatment={treatment} />
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
                     <Field label="Ordering Physician" value={formData.orderingPhysician} onChange={(v: any) => onChange('orderingPhysician', v)} />
                     <Field label="Treatment Priority" value={formData.priority} onChange={(v: any) => onChange('priority', v)} />
@@ -1232,7 +1541,7 @@ const GenericTabContent = ({ title, modality, formData, onChange, setFormData, t
                         <Field label="Dialysate Flow (mL/min)" value={formData.dialysateFlowRate} onChange={(v: any) => onChange('dialysateFlowRate', v)} />
                     )}
                     <Field label={formData.orderType === 'PUF' ? "PUF Goal" : "UF Goal"} value={formData.ufGoal} onChange={(v: any) => onChange('ufGoal', v)} />
-                    <Field label="Min Systolic BP" value={formData.minBP} onChange={(v: any) => onChange('minBP', v)} />
+                    <Field label=" Maintain SBP > (mmHg)" value={formData.minBP} onChange={(v: any) => onChange('minBP', v)} />
                     
                     {formData.orderType !== 'PUF' ? (
                         <>
@@ -1241,7 +1550,6 @@ const GenericTabContent = ({ title, modality, formData, onChange, setFormData, t
                             <Field label="Sodium (Na+)" value={formData.sodium} onChange={(v: any) => onChange('sodium', v)} />
                             <Field label="Sodium Modeling" value={formData.sodiumModeling} onChange={(v: any) => onChange('sodiumModeling', v)} />
                             <Field label="Bicarbonate (HCO3-)" value={formData.bicarb} onChange={(v: any) => onChange('bicarb', v)} />
-                            <Field label="Min BP (mmHg)" value={formData.minBP} onChange={(v: any) => onChange('minBP', v)} />
                             <Field label="UF Profile" value={formData.ufProfile} onChange={(v: any) => onChange('ufProfile', v)} />
                             <Field label="Dialysate Temp (°C)" value={formData.dialysateTemp} onChange={(v: any) => onChange('dialysateTemp', v)} />
                         </>
@@ -1250,7 +1558,6 @@ const GenericTabContent = ({ title, modality, formData, onChange, setFormData, t
                             <p className="text-xs text-slate-400 font-medium italic">Dialysate and Electrolyte parameters are omitted in Pure Ultrafiltration mode.</p>
                         </div>
                     )}
-                    <Field label="UF Profile" value={formData.ufProfile} onChange={(v: any) => onChange('ufProfile', v)} />
                 </div>
 
                 {/* Discrepancy Analytics */}
@@ -1328,24 +1635,41 @@ const CheckboxField = ({ label, options, value, onChange, fullWidth = false, col
 };
 
 const Field = ({ label, type = 'text', fullWidth = false, value, onChange, className = '' }: any) => (
-    <div className={`space-y-2 ${fullWidth ? 'col-span-full' : ''}`}>
-        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{label}</label>
+    <div className={`flex flex-col gap-2.5 w-full ${fullWidth ? 'col-span-full' : ''}`}>
+        <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] ml-1 block w-full">{label}</label>
         {type === 'textarea' ? (
             <textarea 
                 value={value || ''}
                 onChange={(e) => onChange && onChange(e.target.value)}
-                className={`input-field min-h-[120px] py-4 bg-slate-50/30 border-slate-100 focus:bg-white focus:shadow-lg transition-all ${className}`} 
+                className={`w-full min-h-[120px] py-4 px-6 bg-slate-50/50 border border-slate-100 rounded-2xl focus:bg-white focus:ring-4 focus:ring-brand-primary/10 focus:border-brand-primary/30 outline-none transition-all block ${className}`} 
             />
         ) : (
             <input 
                 type={type} 
                 value={value || ''}
                 onChange={(e) => onChange && onChange(e.target.value)}
-                className={`input-field py-4 bg-slate-50/30 border-slate-100 focus:bg-white focus:shadow-lg transition-all px-6 rounded-2xl ${className}`} 
+                className={`w-full py-4 px-6 bg-slate-50/50 border border-slate-100 rounded-2xl focus:bg-white focus:ring-4 focus:ring-brand-primary/10 focus:border-brand-primary/30 outline-none transition-all block ${className}`} 
                 placeholder={`Enter ${label}...`} 
             />
         )}
     </div>
+);
+
+const SafetyToggle = ({ label, description, value, onChange }: { label: string, description: string, value: boolean, onChange: (v: boolean) => void }) => (
+    <button 
+        onClick={() => onChange(!value)}
+        className={`w-full p-6 text-left rounded-3xl border-2 transition-all flex items-center justify-between gap-6 group hover:shadow-lg
+            ${value ? 'bg-emerald-50 border-emerald-500 shadow-emerald-100/50' : 'bg-white border-slate-100 hover:border-slate-300'}`}
+    >
+        <div className="space-y-1">
+            <h4 className={`text-sm font-bold uppercase tracking-tight transition-colors ${value ? 'text-emerald-700' : 'text-slate-700'}`}>{label}</h4>
+            <p className={`text-[10px] font-medium italic transition-colors ${value ? 'text-emerald-600/70' : 'text-slate-400'}`}>{description}</p>
+        </div>
+        <div className={`w-10 h-10 rounded-2xl border-2 flex items-center justify-center transition-all shrink-0
+            ${value ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-200 text-slate-200'}`}>
+            <CheckCircle2 className={`w-6 h-6 transition-transform ${value ? 'scale-110' : 'scale-90'}`} />
+        </div>
+    </button>
 );
 
 export default TreatmentWizard;

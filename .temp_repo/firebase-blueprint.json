@@ -1,0 +1,91 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string", "enum": ["teammate", "admin"] }
+      },
+      "required": ["uid", "email"]
+    },
+    "Patient": {
+      "title": "Patient",
+      "description": "Core patient demographic info",
+      "type": "object",
+      "properties": {
+        "mrn": { "type": "string" },
+        "firstName": { "type": "string" },
+        "lastName": { "type": "string" },
+        "dob": { "type": "string", "format": "date" },
+        "gender": { "type": "string" },
+        "hospitalId": { "type": "string" }
+      },
+      "required": ["mrn", "firstName", "lastName", "hospitalId"]
+    },
+    "TreatmentRecord": {
+      "title": "Treatment Record",
+      "description": "Comprehensive treatment documentation",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "patientId": { "type": "string" },
+        "hospitalId": { "type": "string" },
+        "teammateId": { "type": "string" },
+        "modality": { "type": "string", "enum": ["Hemodialysis", "PD", "Apheresis", "Non-Treatment Services"] },
+        "status": { "type": "string", "enum": ["active", "submitted"] },
+        "csn": { "type": "string" },
+        "visitDate": { "type": "string" },
+        "patientDetails": { "type": "object" },
+        "order": { "type": "object" },
+        "waitTime": { "type": "object" },
+        "equipment": { "type": "object" },
+        "preTreatment": { "type": "object" },
+        "patientEducation": { "type": "object" },
+        "timeout": { "type": "object" },
+        "treatment": { "type": "object" },
+        "postTreatment": { "type": "object" },
+        "nts": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["patientId", "teammateId", "modality", "status"]
+    },
+    "AuditLog": {
+      "title": "Audit Log",
+      "description": "Log of user actions and system events",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "operation": { "type": "string", "enum": ["create", "read", "update", "delete", "login", "logout"] },
+        "collection": { "type": "string" },
+        "documentId": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "details": { "type": "object" },
+        "email": { "type": "string" }
+      },
+      "required": ["userId", "operation", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Platform users"
+    },
+    "/patients/{patientId}": {
+      "schema": "Patient",
+      "description": "Patient records"
+    },
+    "/treatments/{treatmentId}": {
+      "schema": "TreatmentRecord",
+      "description": "Consolidated treatment records"
+    },
+    "/audit_logs/{logId}": {
+      "schema": "AuditLog",
+      "description": "System audit logs"
+    }
+  }
+}

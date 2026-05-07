@@ -14,23 +14,29 @@ export async function extractClinicalData(
 
   let specificInstruction = "";
   if (scanType === 'monitoring') {
-    specificInstruction = `FOCUS: You are scanning a Vital Monitoring / Flowsheet table.
-    IMPORTANT: In many EHR flowsheets, columns represent Time (e.g. 0900, 0915, 0930) and rows represent variables (Heart Rate, BP, SpO2).
-    You must extract the data such that EACH TIME COLUMN becomes ONE entry in the "monitoringEntries" array.
-    Mapping: 
-    - Time column header (e.g., "0900") -> time (convert to "HH:mm", e.g., "09:00")
-    - BP/Arterial BP -> bp (e.g., "162/80")
+    specificInstruction = `FOCUS: You are scanning a Vital Monitoring / Flowsheet table. 
+    Extract each column as a separate row. 
+    
+    IMPORTANT: 
+    - Find the DATE (e.g. "4/16/2026", "04/16/2026") located in the header area, typically centered or left-aligned above the time headers. Extract this into "date".
+    - Because the date applies to the columns, ensure EVERY entry object in the "monitoringEntries" array has this "date" property.
+    - Time Header (e.g. 0945, 1100) -> time (FORMAT as HH:mm in STRICT 24-HOUR MILITARY TIME, e.g. "13:00", "14:15", "01:00". No AM/PM).
     - Mean Arterial Pressure (Device) -> map
-    - Heart Rate/Pulse -> pulse
-    - SpO2 -> sao2
-    - Temp -> temp
-    - Resp -> resp
-    - BFR Ordered / Blood Flow Rate Achieved -> bfr
-    - Ultrafiltration (UFR) -> ufr
-    - Dialysis Venous Pressure -> vp
-    - Dialysis Arterial Pressure -> ap
-    - Dialysis Transmembrane Pressure -> tmp
-    Ensure that you return a valid JSON object containing the "monitoringEntries" key, with an array of objects for EACH time period found.`;
+    - MISSING DATA: If a value is missing, return an EMPTY STRING "". NEVER return "null" or null.
+    - Fields:
+      - Temp -> temp
+      - Heart Rate / Pulse -> pulse
+      - Resp -> resp
+      - BP -> bp
+      - SpO2 -> sao2
+      - BFR Ordered or Blood Flow Rate Achieved -> bfr
+      - Dialysis Venous Pressure -> vp
+      - Dialysis Arterial Pressure -> ap
+      - Dialysis Transmembrane Pressure -> tmp
+      - Ultrafiltration (UFR) -> ufr
+      - Dialysate Flow Rate -> dfr
+      - Hemodialysis General Comments -> notes
+    - PATIENT IDENTITY: Look for the patient name at the very top of the flowsheet/report. Extract this into "patientName".`;
   } else if (scanType === 'order') {
     specificInstruction = `FOCUS: You are scanning a Dialysis Order or Treatment Order Question/Answer table. 
     Extract the following fields precisely:
@@ -49,11 +55,17 @@ export async function extractClinicalData(
     - "Ultrafiltration Profile" -> ufProfile.
     - "Temperature of Dialysate" -> dialysateTemp.
     - "Dialysate HCO3 (mEq/L)" -> bicarb.
-    - "Order History" -> scan the first row under this section. Extract "Date/Time" as orderDateTime and the M.D. under "User" as physician.`;
+    - "Order History" -> scan the first row under this section. Extract "Date/Time" as orderDateTime and the M.D. under "User" as physician.
+    - PATIENT IDENTITY: Look for the patient name at the very top of the order report (e.g. "Jennifer Lagman"). Extract this into "patientName".`;
   } else if (scanType === 'patient') {
-    specificInstruction = `FOCUS: Extract Patient Identity and Lab Status. 
+    specificInstruction = `FOCUS: Extract Patient Identity, Lab Status, and Pre-Treatment/Clinical Assessment data. 
     1. Demographics: MRN, CSN (Contact Serial Number), Name (split if joined), DOB, Age, Gender, Location, Attending.
-    2. Laboratory: Look for HEPATITIS section (HBsAg, HBsAb, CoreAb). Map values like "POSITIVE", "NEGATIVE", "REACTIVE" and extract associated dates. 
+    2. Laboratory: Look for HEPATITIS section (HBsAg, HBsAb, CoreAb). Map values like "POSITIVE", "NEGATIVE", "REACTIVE" and extract associated dates. Specifically, look diligently in the right upper quadrant of the images for HBsAg and HBsAb results if available.
+    3. GI / Abdomen Assessment: Look for Gastrointestinal or Abdominal exams. Extract findings for:
+       - giAbdomen (Map to options like: Rounded, Rigid, Firm, Guarded, Right-Upper Quadrant, Right-Lower Quadrant, Left-Upper Quadrant, Left-Lower Quadrant, Palpable masses, Hernia. If multiple, comma-separate them.)
+       - giBowelSounds (Map to: Normoactive, Hyperactive, Hypoactive, Absent)
+       - giSymptoms (Map to: Constipation, Continent, Cramping, Diarrhea, Difficulty Swallowing, Epigastric Pain, Heartburn, Hemorrhoids, Incontinent, Loss/Decreased Appetite, Nausea, Projectile Vomiting. If multiple, comma-separate them.)
+       - giTubesDrains (Map to: Nasogastric Tube, Oro-Gastric Tube, Gastric Tube, Nasojejunal Tube, Gastrojejunostomy Tube, Rectal Tube, Orojejunal Tube, Jejunostomy Tube. If multiple, comma-separate them.)
     Notes: CSN is often near MRN in popups. If name is "Last, First", split accordingly.`;
   }
 
@@ -82,6 +94,10 @@ export async function extractClinicalData(
     hbsagDate: { type: Type.STRING },
     hbsab: { type: Type.STRING },
     hbsabDate: { type: Type.STRING },
+    giAbdomen: { type: Type.STRING },
+    giBowelSounds: { type: Type.STRING },
+    giSymptoms: { type: Type.STRING },
+    giTubesDrains: { type: Type.STRING },
   };
 
   const orderProps = {
@@ -104,6 +120,7 @@ export async function extractClinicalData(
     minBP: { type: Type.STRING },
     ufProfile: { type: Type.STRING },
     orderDateTime: { type: Type.STRING },
+    patientName: { type: Type.STRING },
   };
 
   const monitoringProps = {
@@ -111,6 +128,7 @@ export async function extractClinicalData(
     items: {
       type: Type.OBJECT,
       properties: {
+        date: { type: Type.STRING },
         time: { type: Type.STRING },
         pulse: { type: Type.STRING },
         resp: { type: Type.STRING },
@@ -119,10 +137,13 @@ export async function extractClinicalData(
         sao2: { type: Type.STRING },
         temp: { type: Type.STRING },
         bfr: { type: Type.STRING },
-        ufr: { type: Type.STRING },
         vp: { type: Type.STRING },
         ap: { type: Type.STRING },
-        tmp: { type: Type.STRING }
+        tmp: { type: Type.STRING },
+        ufr: { type: Type.STRING },
+        dfr: { type: Type.STRING },
+        notes: { type: Type.STRING },
+        patientName: { type: Type.STRING }
       }
     }
   };
@@ -171,7 +192,6 @@ export async function extractClinicalData(
     }
 
     let text = response.text;
-    console.log("Raw Gemini Response:", text);
     
     // Clean up markdown block if present
     if (text.startsWith('```json')) {

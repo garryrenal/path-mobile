@@ -1,0 +1,55 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Global Helpers
+    function isSignedIn() { return request.auth != null; }
+    function isEmailVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    function isValidAuditLog(data) {
+      return data.keys().hasAll(['userId', 'email', 'operation', 'collection', 'documentId', 'timestamp', 'details']) &&
+             data.keys().size() == 7 &&
+             data.userId == request.auth.uid &&
+             data.email == request.auth.token.email &&
+             data.operation is string &&
+             data.operation in ['create', 'read', 'update', 'delete', 'login', 'logout'] &&
+             data.timestamp == request.time;
+    }
+
+    // Users
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isOwner(userId);
+    }
+
+    // Patients
+    match /patients/{patientId} {
+      allow read: if isSignedIn();
+      allow create: if isEmailVerified() && incoming().mrn is string;
+      allow update: if isEmailVerified();
+    }
+
+    // Treatments
+    match /treatments/{treatmentId} {
+      allow read: if isSignedIn();
+      allow create: if isEmailVerified() && incoming().teammateId == request.auth.uid;
+      allow update: if isEmailVerified() && 
+                      existing().status != 'submitted' && 
+                      existing().teammateId == request.auth.uid;
+    }
+
+    // Audit Logs
+    match /audit_logs/{logId} {
+      allow create: if isEmailVerified() && isValidAuditLog(incoming());
+      allow read: if isEmailVerified() && resource.data.userId == request.auth.uid;
+    }
+  }
+}
