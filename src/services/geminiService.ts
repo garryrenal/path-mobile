@@ -14,35 +14,39 @@ export async function extractClinicalData(
 
   let specificInstruction = "";
   if (scanType === 'monitoring') {
-    specificInstruction = `FOCUS: Vital Monitoring / Flowsheet table.
-    Map values to "monitoringEntries" array. EACH unique time point = ONE object.
+    specificInstruction = `FOCUS: Vital Monitoring Flowsheet (Clinical Observations).
+    EHR flowsheets often show times as column headers and variables (BP, HR, SpO2) as rows. 
+    OR they show times as rows and variables as columns.
     
-    Fields:
-    - Time -> time (HH:mm)
-    - BP -> bp
-    - MAP -> map
-    - HR/Pulse -> pulse
-    - SpO2 -> sao2
-    - Temp -> temp
-    - Resp -> resp
-    - BFR -> bfr
-    - UFR -> ufr
-    - VP -> vp
-    - AP -> ap
-    - TMP -> tmp`;
+    CRITICAL: 
+    1. Extract EACH unique time point as one object in the "monitoringEntries" array.
+    2. Look for the treatment date header (often located just above the time columns, e.g., "4/16/2026") and include it in the 'date' field for each entry.
+    3. Map clinical variables accurately:
+       - Date (e.g. 4/16/2026) -> date (Format: "YYYY-MM-DD")
+       - Time (08:00, 09:30, etc.) -> time
+       - Blood Pressure -> bp
+       - MAP -> map
+       - Heart Rate / Puls / P -> pulse
+       - SpO2 / SaO2 -> sao2
+       - Temperature / Temp / T -> temp
+       - Respiration / Resp / RR -> resp
+       - Blood Flow / BFR -> bfr
+       - Ultrafiltration / UFR -> ufr
+    4. If a value for a specific time is missing or unreadable, do NOT include that key or use null.
+    5. Only extract ACTUAL data points. Skip empty columns/rows.`;
   } else if (scanType === 'order') {
     specificInstruction = `FOCUS: Dialysis Order. 
-    Extract values: duration (HH:mm), treatmentDate (YYYY-MM-DD), dialyzer, accessType, bloodFlowRate, dialysateFlowRate, ufGoal, potassium, calcium, sodium, bicarb, dialysateTemp, minBP, ufProfile.`;
+    Extract values: duration (format HH:mm), treatmentDate (YYYY-MM-DD), dialyzer, accessType, bloodFlowRate, dialysateFlowRate, ufGoal, potassium, calcium, sodium, bicarb, dialysateTemp, minBP, ufProfile.`;
   } else if (scanType === 'patient') {
     specificInstruction = `FOCUS: Patient identity & Hepatitis stats.
-    - MRN, CSN, Name, DOB, Gender, Allergies.
-    - Hepatitis: HBsAg, HBsAb, HBcAb (result & date).`;
+    Extract: MRN, CSN, Name, DOB (YYYY-MM-DD), Gender, Allergies.
+    Hepatitis Labs: HBsAg, HBsAb, HBcAb (result & date).`;
   } else if (scanType === 'all') {
-    specificInstruction = `Extract Patient ID, Dialysis Orders, and Vital Signs Flowsheets.`;
+    specificInstruction = `Comprehensive extraction of Patient Identity, Dialysis Orders, and Vital Signs Flowsheets.`;
   }
 
   const systemInstructions = `
-    Extract clinical data from the EHR image.
+    You are a medical data extraction specialist. OCR the clinical data from the EHR image and return structured JSON.
     ${specificInstruction}
     Return ONLY strict JSON.
   `;
@@ -94,6 +98,7 @@ export async function extractClinicalData(
     items: {
       type: Type.OBJECT,
       properties: {
+        date: { type: Type.STRING },
         time: { type: Type.STRING },
         pulse: { type: Type.STRING },
         resp: { type: Type.STRING },
@@ -118,6 +123,7 @@ export async function extractClinicalData(
     properties.vitals = {
       type: Type.OBJECT,
       properties: {
+        date: { type: Type.STRING },
         bp: { type: Type.STRING },
         pulse: { type: Type.STRING },
         temp: { type: Type.STRING },

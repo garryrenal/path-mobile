@@ -184,55 +184,86 @@ const TreatmentWizard: React.FC<TreatmentWizardProps> = ({ treatment, hospital, 
     return clean;
   };
 
+  const normalizeDate = (dateStr: any) => {
+    if (!dateStr) return new Date().toISOString().split('T')[0];
+    const clean = String(dateStr).trim();
+    
+    // YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean;
+    
+    // M/D/YYYY or MM/DD/YYYY
+    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(clean)) {
+      const [m, d, y] = clean.split('/');
+      return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    }
+    
+    return clean;
+  };
+
   const handleExtraction = (data: any) => {
-    console.log("Extracted Data Received:", data);
     const updates: any = {};
     
     // Check if we have monitoring entries from a flowsheet
     let extractedEntries = data.monitoringEntries;
     if (!extractedEntries && Array.isArray(data)) extractedEntries = data;
     if (!extractedEntries && data.vitals && Array.isArray(data.vitals)) extractedEntries = data.vitals;
-    if (!extractedEntries && data.items && Array.isArray(data.items)) extractedEntries = data.items;
     if (!extractedEntries && data.monitoring && Array.isArray(data.monitoring)) extractedEntries = data.monitoring;
     if (!extractedEntries && data.monitoring_entries && Array.isArray(data.monitoring_entries)) extractedEntries = data.monitoring_entries;
-    if (!extractedEntries && data.observations && Array.isArray(data.observations)) extractedEntries = data.observations;
     if (!extractedEntries && data.flowsheet && Array.isArray(data.flowsheet)) extractedEntries = data.flowsheet;
-    if (!extractedEntries && data.data && Array.isArray(data.data)) extractedEntries = data.data;
 
     if (extractedEntries && Array.isArray(extractedEntries) && extractedEntries.length > 0) {
-      console.log("Found monitoring entries:", extractedEntries.length);
-      
       // Filter valid entries
       const entries = extractedEntries.map((e: any) => {
-        const lowerCaseEntry: any = {};
+        const normalizedEntry: any = {};
         if (typeof e === 'object' && e !== null) {
             for (const k in e) {
-                lowerCaseEntry[k.toLowerCase()] = e[k];
+                normalizedEntry[k.toLowerCase().replace(/[\s\-_]/g, '')] = e[k];
             }
         }
-        return lowerCaseEntry;
+        return normalizedEntry;
       }).filter((e: any) => 
-        e.time || e.bp || e.pulse || e.hr || e.temp || e.resp || e.sao2 || e.spo2 || e.bfr || e.ufr || e.map || e.date
+        e.time || e.bp || e.bloodpressure || e.pulse || e.hr || e.heartrate || e.temp || e.temperature || e.resp || e.sao2 || e.spo2 || e.bfr || e.ufr || e.map || e.date
       ).map((e: any) => {
         // Map common aliases
         const normalized: any = { ...e };
-        if (e.hr && !e.pulse) normalized.pulse = e.hr;
-        if (e.puls && !e.pulse) normalized.pulse = e.puls;
-        if (e.pulse_rate && !e.pulse) normalized.pulse = e.pulse_rate;
-        if (e.spo2 && !e.sao2) normalized.sao2 = e.spo2;
-        if (e.sao2_pct && !e.sao2) normalized.sao2 = e.sao2_pct;
-        if (e.sat && !e.sao2) normalized.sao2 = e.sat;
-        if (e.arterial_bp && !e.bp) normalized.bp = e.arterial_bp;
-        if (e.blood_pressure && !e.bp) normalized.bp = e.blood_pressure;
-        if (e.temperature && !e.temp) normalized.temp = e.temperature;
-        if (e.t && !e.temp) normalized.temp = e.t;
-        if (e.respirations && !e.resp) normalized.resp = e.respirations;
-        if (e.rr && !e.resp) normalized.resp = e.rr;
-        if (e.mean_arterial_pressure && !e.map) normalized.map = e.mean_arterial_pressure;
-        if (e.map_device && !e.map) normalized.map = e.map_device;
+        
+        // Pulse mapping
+        const pulseVal = e.pulse || e.hr || e.puls || e.p || e.heartrate || e.pulserate;
+        if (pulseVal) normalized.pulse = pulseVal;
+        
+        // SpO2 mapping
+        const sao2Val = e.sao2 || e.spo2 || e.sao2pct || e.spo2pct || e.sat || e.saturation;
+        if (sao2Val) normalized.sao2 = sao2Val;
+        
+        // BP mapping
+        const bpVal = e.bp || e.bloodpressure || e.arterialbp || e.noninvasivebp || e.nibp;
+        if (bpVal) normalized.bp = bpVal;
+        
+        // Temp mapping
+        const tempVal = e.temp || e.temperature || e.t;
+        if (tempVal) normalized.temp = tempVal;
+        
+        // Resp mapping
+        const respVal = e.resp || e.respiration || e.respiratoryrate || e.rr || e.respirations;
+        if (respVal) normalized.resp = respVal;
+        
+        // MAP mapping
+        const mapVal = e.map || e.meanarterialpressure || e.mapdevice;
+        if (mapVal) normalized.map = mapVal;
+
+        // BFR mapping
+        const bfrVal = e.bfr || e.bloodflowrate || e.bloodflow;
+        if (bfrVal) normalized.bfr = bfrVal;
+
+        // UFR mapping
+        const ufrVal = e.ufr || e.ultrafiltrationrate || e.ufrate;
+        if (ufrVal) normalized.ufr = ufrVal;
         
         // Normalize time
-        normalized.time = normalizeTime(e.time);
+        normalized.time = normalizeTime(e.time || e.clock || e.timeheader);
+        
+        // Normalize date
+        normalized.date = normalizeDate(e.date);
         
         // Apply temperature logic if unit wasn't provided but value was
         let tempUnit = normalized.tempUnit;
@@ -1038,7 +1069,7 @@ const GenericTabContent = ({ title, modality, formData, onChange, setFormData, t
                         <thead>
                             <tr className="bg-slate-50/50 border-b border-slate-100">
                                 <th className="p-4 text-[10px] font-black uppercase text-slate-400 text-left w-[140px]">Date</th>
-                                <th className="p-4 text-[10px] font-black uppercase text-slate-400 text-left w-[110px] sticky left-0 bg-slate-50 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">Time</th>
+                                <th className="p-4 text-[10px] font-black uppercase text-slate-400 text-left w-[110px] sticky left-0 bg-white/95 backdrop-blur-sm z-10 border-r-2 border-slate-200 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.12)]">Time</th>
                                 <th className="p-4 text-[10px] font-black uppercase text-slate-400 text-left w-[130px]">BP</th>
                                 <th className="p-4 text-[10px] font-black uppercase text-slate-400 text-left w-[80px]">MAP</th>
                                 <th className="p-4 text-[10px] font-black uppercase text-slate-400 text-left w-[80px]">P</th>
@@ -1069,8 +1100,8 @@ const GenericTabContent = ({ title, modality, formData, onChange, setFormData, t
                                     <td className="p-2">
                                         <input type="date" value={entry.date || ''} onChange={(e) => updateEntry(idx, 'date', e.target.value)} className="w-full text-xs font-bold p-3 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-brand-primary" />
                                     </td>
-                                    <td className="p-2 sticky left-0 bg-white z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
-                                        <input type="time" value={entry.time || ''} step="60" onChange={(e) => updateEntry(idx, 'time', e.target.value)} className="w-full text-xs font-bold p-3 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-brand-primary" />
+                                    <td className="p-2 sticky left-0 bg-white z-10 border-r-2 border-slate-100 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.12)]">
+                                        <input type="time" value={entry.time || ''} step="60" onChange={(e) => updateEntry(idx, 'time', e.target.value)} className="w-full text-xs font-bold p-3 bg-white border border-slate-100 rounded-xl focus:ring-2 focus:ring-brand-primary" />
                                     </td>
                                     <td className="p-2">
                                         <input type="text" value={entry.bp || ''} onChange={(e) => updateEntry(idx, 'bp', e.target.value)} placeholder="120/80" className="w-full text-xs font-bold p-3 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-brand-primary" />
