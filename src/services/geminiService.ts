@@ -10,60 +10,69 @@ export async function extractClinicalData(
   scanType: ScanType = 'all',
   retryCount = 0
 ): Promise<any> {
-  const model = "gemini-3-flash-preview";
+  const model = "gemini-3.1-pro-preview";
 
   let specificInstruction = "";
   if (scanType === 'monitoring') {
-    specificInstruction = `FOCUS: You are scanning a Vital Monitoring / Flowsheet table.
-    IMPORTANT: In many EHR flowsheets, columns represent Time (e.g. 0900, 0915, 0930) and rows represent variables (Heart Rate, BP, SpO2).
-    You must extract the data such that EACH TIME COLUMN becomes ONE entry in the "monitoringEntries" array.
-    Mapping: 
-    - Time column header (e.g., "0900") -> time (convert to "HH:mm", e.g., "09:00")
-    - BP/Arterial BP -> bp (e.g., "162/80")
-    - Mean Arterial Pressure (Device) -> map
-    - Heart Rate/Pulse -> pulse
-    - SpO2 -> sao2
-    - Temp -> temp
-    - Resp -> resp
-    - BFR Ordered / Blood Flow Rate Achieved -> bfr
-    - Ultrafiltration (UFR) -> ufr
-    - Dialysis Venous Pressure -> vp
-    - Dialysis Arterial Pressure -> ap
-    - Dialysis Transmembrane Pressure -> tmp
-    Ensure that you return a valid JSON object containing the "monitoringEntries" key, with an array of objects for EACH time period found.`;
+    specificInstruction = `FOCUS: You are scanning a Vital Monitoring / Flowsheet / Flow sheet table from an Electronic Health Record (EHR).
+    IMPORTANT: Flowsheets often use columns for Time (e.g., 09:00, 09:15, 09:30) and rows for clinical variables (Blood Pressure, Heart Rate, SpO2, MAP).
+    OR, rows represent Time and columns represent variables.
+    
+    You must intelligently map the table values to the "monitoringEntries" array.
+    EACH unique time point MUST be one object in the array.
+    
+    Mapping Guide (Case-Insensitive):
+    - Time/Clock Header -> time (Format: "HH:mm")
+    - Blood Pressure / BP / Arterial BP -> bp (e.g., "145/88")
+    - MAP / Mean Arterial Pressure -> map
+    - Heart Rate / Puls / P / HR -> pulse
+    - SpO2 / SaO2 / Saturation -> sao2
+    - Temperature / Temp / T -> temp
+    - Respiration / Resp / RR -> resp
+    - Blood Flow Rate / BFR -> bfr
+    - Ultrafiltration Rate / UFR -> ufr
+    - Venous Pressure / VP -> vp
+    - Arterial Pressure / AP -> ap
+    - Transmembrane Pressure / TMP -> tmp
+    
+    If you see a flowsheet with multiple columns of times, create an entry for EACH column that contains data.`;
   } else if (scanType === 'order') {
-    specificInstruction = `FOCUS: You are scanning a Dialysis Order or Treatment Order Question/Answer table. 
-    Extract the following fields precisely:
-    - "Duration (Minutes)?" -> duration (CONVERT minutes like 180 to "03:00").
-    - "Dialysis Date?" -> treatmentDate (YYYY-MM-DD).
-    - "Dialyzer?" -> dialyzer.
-    - "Access Method?" -> accessMethod (maps to accessType).
-    - "Blood Flow Rate (mL/min)" -> bloodFlowRate.
-    - "Dialysis flow?" -> dialysateFlowRate.
-    - "Ultrafiltration Goal" -> ufGoal.
-    - "Dialysate Potassium (mEq/L)" -> potassium (extract decimal like "2.0").
-    - "Dialysate Calcium (mEq/L)" -> calcium (extract decimal like "2.5").
-    - "Sodium Bath" -> sodium.
-    - "Sodium Modeling" -> sodiumModeling.
-    - "Maintain Systolic BP Greater than (mm/Hg)" -> minBP.
-    - "Ultrafiltration Profile" -> ufProfile.
-    - "Temperature of Dialysate" -> dialysateTemp.
-    - "Dialysate HCO3 (mEq/L)" -> bicarb.
-    - "Order History" -> scan the first row under this section. Extract "Date/Time" as orderDateTime and the M.D. under "User" as physician.`;
+    specificInstruction = `FOCUS: You are scanning a Dialysis Order table. 
+    Extract values from the "Prescription" or "Order" section:
+    - Duration -> duration (Convert minutes to HH:mm, e.g., 210 -> "03:30")
+    - Treatment Date -> treatmentDate (YYYY-MM-DD)
+    - Dialyzer -> dialyzer
+    - Access Method/Type -> accessMethod
+    - Blood Flow Rate / BFR -> bloodFlowRate
+    - Dialysate Flow Rate / DFR -> dialysateFlowRate
+    - UF Goal -> ufGoal
+    - Potassium / K+ -> potassium
+    - Calcium / Ca++ -> calcium
+    - Sodium / Na+ -> sodium
+    - Bicarbonate / HCO3 -> bicarb
+    - Temperature -> dialysateTemp
+    - Minimum BP -> minBP
+    - UF Profile -> ufProfile`;
   } else if (scanType === 'patient') {
-    specificInstruction = `FOCUS: Extract Patient Identity and Lab Status. 
-    1. Demographics: MRN, CSN (Contact Serial Number), Name (split if joined), DOB, Age, Gender, Location, Attending.
-    2. Laboratory: Look for HEPATITIS section (HBsAg, HBsAb, CoreAb). Map values like "POSITIVE", "NEGATIVE", "REACTIVE" and extract associated dates. 
-    Notes: CSN is often near MRN in popups. If name is "Last, First", split accordingly.`;
+    specificInstruction = `FOCUS: Extract Patient Demographics and Hepatitis status.
+    - MRN, CSN, Name (First/Last), DOB (YYYY-MM-DD), Gender, Allergies.
+    - Hepatitis Lab Results: Look for HBsAg, HBsAb, HBcAb. Extract values (Positive/Negative/Reactive) and dates.`;
+  } else if (scanType === 'all') {
+    specificInstruction = `FOCUS: Comprehensive extraction of Patient Identity, Dialysis Orders, and Vital Signs Flowsheets.
+    Extract any identifying information, treatment prescriptions, and historical vital signs sequences found in the document.`;
   }
 
   const systemInstructions = `
-    Identify and extract clinical data from the EHR image.
+    You are a specialized medical data extraction AI. Your task is to OCR and structure clinical data from EHR system screenshots or photos.
     ${specificInstruction}
-    Output strict JSON. No conversational text.
+    
+    CRITICAL RULES:
+    1. EXCLUDE all headers or metadata from the extraction unless requested.
+    2. If a value is unreadable, use null.
+    3. Return ONLY strict JSON.
+    4. Ensure numbers are strings to preserve formatting (e.g., "120/80").
   `;
 
-  // Base properties
   const patientProps = {
     mrn: { type: Type.STRING },
     csn: { type: Type.STRING },
@@ -146,13 +155,14 @@ export async function extractClinicalData(
   }
 
   try {
-    console.log(`Extracting data (${scanType}) for ${modality}. Size: ${Math.round(imageBase64.length / 1024)} KB`);
+    console.log(`[AI] Initializing extraction - Model: ${model}, Type: ${scanType}, Modality: ${modality}`);
+    console.log(`[AI] Payload size: ${Math.round(imageBase64.length / 1024)} KB`);
     
     const response = await ai.models.generateContent({
       model,
       contents: {
         parts: [
-          { text: "Extract clinical data from this image." },
+          { text: "Extract the structured clinical data from this EHR flowsheet or order image." },
           { inlineData: { data: imageBase64, mimeType: "image/jpeg" } }
         ]
       },
@@ -167,60 +177,33 @@ export async function extractClinicalData(
     });
 
     if (!response.text) {
-      throw new Error("AI returned an empty response.");
+      throw new Error("AI returned an empty response text.");
     }
 
-    let text = response.text;
-    console.log("Raw Gemini Response:", text);
+    const text = response.text.trim();
+    console.log("[AI] Raw Response Received:", text.substring(0, 500) + (text.length > 500 ? '...' : ''));
     
-    // Clean up markdown block if present
-    if (text.startsWith('```json')) {
-      text = text.replace(/^```json\n?/, '').replace(/\n?```$/, '');
-    } else if (text.startsWith('```')) {
-      text = text.replace(/^```\n?/, '').replace(/\n?```$/, '');
-    }
-
     try {
-      return JSON.parse(text);
+      const parsed = JSON.parse(text);
+      console.log("[AI] JSON Parse Success");
+      return parsed;
     } catch (parseError) {
-      console.warn("Initial JSON parse failed, attempting repair:", parseError);
+      console.warn("[AI] Parse failed, cleaning string...");
+      // Clean up markdown block if present
+      let cleaned = text;
+      if (cleaned.includes('```json')) {
+        const match = cleaned.match(/```json([\s\S]*?)```/);
+        if (match) cleaned = match[1];
+      } else if (cleaned.includes('```')) {
+        const match = cleaned.match(/```([\s\S]*?)```/);
+        if (match) cleaned = match[1];
+      }
       
-      // Basic repair for truncated JSON strings
       try {
-        let repaired = text.trim();
-        
-        // Count braces and brackets
-        let openBraces = (repaired.match(/\{/g) || []).length;
-        let closeBraces = (repaired.match(/\}/g) || []).length;
-        let openBrackets = (repaired.match(/\[/g) || []).length;
-        let closeBrackets = (repaired.match(/\]/g) || []).length;
-        
-        // If last char is a comma, remove it
-        if (repaired.endsWith(',')) {
-          repaired = repaired.slice(0, -1);
-        }
-        
-        // Close strings if unterminated (look for odd number of quotes)
-        // This is tricky but we can try to find if the last quote is not followed by closure
-        const quotes = repaired.match(/"/g) || [];
-        if (quotes.length % 2 !== 0) {
-          repaired += '"';
-        }
-
-        // Add missing closing brackets/braces
-        while (closeBrackets < openBrackets) {
-          repaired += ']';
-          closeBrackets++;
-        }
-        while (closeBraces < openBraces) {
-          repaired += '}';
-          closeBraces++;
-        }
-        
-        return JSON.parse(repaired);
-      } catch (repairError) {
-        console.error("JSON repair also failed:", repairError);
-        throw new Error("The clinical data in this image was too complex for the AI to process in one go. Please try zooming in on a smaller section or retaking the photo.");
+        return JSON.parse(cleaned.trim());
+      } catch (e2) {
+        console.error("[AI] Final parse attempt failed:", text);
+        throw new Error("The data in this image was too complex or truncated. Please try a clearer photo or focus on a smaller area.");
       }
     }
   } catch (error) {

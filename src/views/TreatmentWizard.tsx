@@ -157,9 +157,9 @@ const TreatmentWizard: React.FC<TreatmentWizardProps> = ({ treatment, hospital, 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Helper to normalize time to 24H HH:mm format for input type="time"
-  const normalizeTime = (timeStr: string) => {
+  const normalizeTime = (timeStr: any) => {
     if (!timeStr) return '';
-    const clean = timeStr.trim().toLowerCase();
+    const clean = String(timeStr).trim().toLowerCase();
     
     // If it's already HH:mm
     if (/^\d{2}:\d{2}$/.test(clean)) return clean;
@@ -194,7 +194,10 @@ const TreatmentWizard: React.FC<TreatmentWizardProps> = ({ treatment, hospital, 
     if (!extractedEntries && data.vitals && Array.isArray(data.vitals)) extractedEntries = data.vitals;
     if (!extractedEntries && data.items && Array.isArray(data.items)) extractedEntries = data.items;
     if (!extractedEntries && data.monitoring && Array.isArray(data.monitoring)) extractedEntries = data.monitoring;
+    if (!extractedEntries && data.monitoring_entries && Array.isArray(data.monitoring_entries)) extractedEntries = data.monitoring_entries;
+    if (!extractedEntries && data.observations && Array.isArray(data.observations)) extractedEntries = data.observations;
     if (!extractedEntries && data.flowsheet && Array.isArray(data.flowsheet)) extractedEntries = data.flowsheet;
+    if (!extractedEntries && data.data && Array.isArray(data.data)) extractedEntries = data.data;
 
     if (extractedEntries && Array.isArray(extractedEntries) && extractedEntries.length > 0) {
       console.log("Found monitoring entries:", extractedEntries.length);
@@ -214,7 +217,19 @@ const TreatmentWizard: React.FC<TreatmentWizardProps> = ({ treatment, hospital, 
         // Map common aliases
         const normalized: any = { ...e };
         if (e.hr && !e.pulse) normalized.pulse = e.hr;
+        if (e.puls && !e.pulse) normalized.pulse = e.puls;
+        if (e.pulse_rate && !e.pulse) normalized.pulse = e.pulse_rate;
         if (e.spo2 && !e.sao2) normalized.sao2 = e.spo2;
+        if (e.sao2_pct && !e.sao2) normalized.sao2 = e.sao2_pct;
+        if (e.sat && !e.sao2) normalized.sao2 = e.sat;
+        if (e.arterial_bp && !e.bp) normalized.bp = e.arterial_bp;
+        if (e.blood_pressure && !e.bp) normalized.bp = e.blood_pressure;
+        if (e.temperature && !e.temp) normalized.temp = e.temperature;
+        if (e.t && !e.temp) normalized.temp = e.t;
+        if (e.respirations && !e.resp) normalized.resp = e.respirations;
+        if (e.rr && !e.resp) normalized.resp = e.rr;
+        if (e.mean_arterial_pressure && !e.map) normalized.map = e.mean_arterial_pressure;
+        if (e.map_device && !e.map) normalized.map = e.map_device;
         
         // Normalize time
         normalized.time = normalizeTime(e.time);
@@ -1022,8 +1037,8 @@ const GenericTabContent = ({ title, modality, formData, onChange, setFormData, t
                     <table className="w-full border-collapse min-w-[2200px]">
                         <thead>
                             <tr className="bg-slate-50/50 border-b border-slate-100">
-                                <th className="p-4 text-[10px] font-black uppercase text-slate-400 text-left sticky left-0 bg-slate-50 z-10 w-[140px]">Date</th>
-                                <th className="p-4 text-[10px] font-black uppercase text-slate-400 text-left w-[110px]">Time</th>
+                                <th className="p-4 text-[10px] font-black uppercase text-slate-400 text-left w-[140px]">Date</th>
+                                <th className="p-4 text-[10px] font-black uppercase text-slate-400 text-left w-[110px] sticky left-0 bg-slate-50 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">Time</th>
                                 <th className="p-4 text-[10px] font-black uppercase text-slate-400 text-left w-[130px]">BP</th>
                                 <th className="p-4 text-[10px] font-black uppercase text-slate-400 text-left w-[80px]">MAP</th>
                                 <th className="p-4 text-[10px] font-black uppercase text-slate-400 text-left w-[80px]">P</th>
@@ -1051,10 +1066,10 @@ const GenericTabContent = ({ title, modality, formData, onChange, setFormData, t
                         <tbody>
                             {entries.map((entry: any, idx: number) => (
                                 <tr key={idx} className="border-b border-slate-50 hover:bg-slate-50/30 transition-colors">
-                                    <td className="p-2 sticky left-0 bg-white z-10">
+                                    <td className="p-2">
                                         <input type="date" value={entry.date || ''} onChange={(e) => updateEntry(idx, 'date', e.target.value)} className="w-full text-xs font-bold p-3 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-brand-primary" />
                                     </td>
-                                    <td className="p-2">
+                                    <td className="p-2 sticky left-0 bg-white z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                                         <input type="time" value={entry.time || ''} step="60" onChange={(e) => updateEntry(idx, 'time', e.target.value)} className="w-full text-xs font-bold p-3 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-brand-primary" />
                                     </td>
                                     <td className="p-2">

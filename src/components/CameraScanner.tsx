@@ -13,6 +13,7 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ modality, scanType = 'all
   const [isScanning, setIsScanning] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   const compressImage = (file: File): Promise<{ base64: string, previewUrl: string }> => {
     return new Promise((resolve, reject) => {
@@ -23,8 +24,8 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ modality, scanType = 'all
         img.src = event.target?.result as string;
         img.onload = () => {
           const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 1200; 
-          const MAX_HEIGHT = 1200;
+          const MAX_WIDTH = 2000; 
+          const MAX_HEIGHT = 2000;
           let width = img.width;
           let height = img.height;
 
@@ -43,7 +44,7 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ modality, scanType = 'all
           canvas.height = height;
           const ctx = canvas.getContext('2d');
           ctx?.drawImage(img, 0, 0, width, height);
-          const previewUrl = canvas.toDataURL('image/jpeg', 0.8);
+          const previewUrl = canvas.toDataURL('image/jpeg', 0.9);
           const base64 = previewUrl.split(',')[1];
           resolve({ base64, previewUrl });
         };
@@ -96,22 +97,40 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ modality, scanType = 'all
       <div className="flex gap-3">
         <button 
           type="button"
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => cameraInputRef.current?.click()}
           className="flex-1 p-4 bg-indigo-50 border-2 border-indigo-100 border-dashed rounded-2xl flex flex-col items-center gap-2 text-indigo-600 hover:bg-indigo-100 transition-colors group"
         >
           <div className="p-3 bg-white rounded-full shadow-sm group-hover:scale-110 transition-transform">
             <Camera className="w-6 h-6" />
           </div>
-          <span className="text-xs font-bold uppercase tracking-wider">Scan Bracelet/Monitor</span>
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            onChange={handleFileChange} 
-            accept="image/*" 
-            capture="environment" 
-            className="hidden" 
-          />
+          <span className="text-xs font-bold uppercase tracking-wider text-center">Camera</span>
         </button>
+        <button 
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="flex-1 p-4 bg-slate-50 border-2 border-slate-200 border-dashed rounded-2xl flex flex-col items-center gap-2 text-slate-600 hover:bg-slate-100 transition-colors group"
+        >
+          <div className="p-3 bg-white rounded-full shadow-sm group-hover:scale-110 transition-transform">
+            <Upload className="w-6 h-6" />
+          </div>
+          <span className="text-xs font-bold uppercase tracking-wider text-center">Upload Photo</span>
+        </button>
+        
+        <input 
+          type="file" 
+          ref={cameraInputRef} 
+          onChange={handleFileChange} 
+          accept="image/*" 
+          capture="environment"
+          className="hidden" 
+        />
+        <input 
+          type="file" 
+          ref={fileInputRef} 
+          onChange={handleFileChange} 
+          accept="image/*" 
+          className="hidden" 
+        />
       </div>
 
       <AnimatePresence>

@@ -102,7 +102,7 @@ const AddPatientModal: React.FC<AddPatientModalProps> = ({ isOpen, onClose, hosp
                   <div className="flex items-center justify-between">
                     <h4 className="text-[10px] uppercase font-black tracking-[0.2em] text-slate-400">AI Assistant</h4>
                   </div>
-                  <CameraScanner modality="hemodialysis" onDataExtracted={onDataExtracted} />
+                  <CameraScanner modality="hemodialysis" scanType="patient" onDataExtracted={onDataExtracted} />
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
