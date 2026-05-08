@@ -24,8 +24,8 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ modality, scanType = 'all
         img.src = event.target?.result as string;
         img.onload = () => {
           const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 2000; 
-          const MAX_HEIGHT = 2000;
+          const MAX_WIDTH = 1600; 
+          const MAX_HEIGHT = 1600;
           let width = img.width;
           let height = img.height;
 
@@ -44,7 +44,7 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ modality, scanType = 'all
           canvas.height = height;
           const ctx = canvas.getContext('2d');
           ctx?.drawImage(img, 0, 0, width, height);
-          const previewUrl = canvas.toDataURL('image/jpeg', 0.9);
+          const previewUrl = canvas.toDataURL('image/jpeg', 0.85);
           const base64 = previewUrl.split(',')[1];
           resolve({ base64, previewUrl });
         };

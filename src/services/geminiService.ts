@@ -10,67 +10,41 @@ export async function extractClinicalData(
   scanType: ScanType = 'all',
   retryCount = 0
 ): Promise<any> {
-  const model = "gemini-3.1-pro-preview";
+  const model = "gemini-3-flash-preview";
 
   let specificInstruction = "";
   if (scanType === 'monitoring') {
-    specificInstruction = `FOCUS: You are scanning a Vital Monitoring / Flowsheet / Flow sheet table from an Electronic Health Record (EHR).
-    IMPORTANT: Flowsheets often use columns for Time (e.g., 09:00, 09:15, 09:30) and rows for clinical variables (Blood Pressure, Heart Rate, SpO2, MAP).
-    OR, rows represent Time and columns represent variables.
+    specificInstruction = `FOCUS: Vital Monitoring / Flowsheet table.
+    Map values to "monitoringEntries" array. EACH unique time point = ONE object.
     
-    You must intelligently map the table values to the "monitoringEntries" array.
-    EACH unique time point MUST be one object in the array.
-    
-    Mapping Guide (Case-Insensitive):
-    - Time/Clock Header -> time (Format: "HH:mm")
-    - Blood Pressure / BP / Arterial BP -> bp (e.g., "145/88")
-    - MAP / Mean Arterial Pressure -> map
-    - Heart Rate / Puls / P / HR -> pulse
-    - SpO2 / SaO2 / Saturation -> sao2
-    - Temperature / Temp / T -> temp
-    - Respiration / Resp / RR -> resp
-    - Blood Flow Rate / BFR -> bfr
-    - Ultrafiltration Rate / UFR -> ufr
-    - Venous Pressure / VP -> vp
-    - Arterial Pressure / AP -> ap
-    - Transmembrane Pressure / TMP -> tmp
-    
-    If you see a flowsheet with multiple columns of times, create an entry for EACH column that contains data.`;
+    Fields:
+    - Time -> time (HH:mm)
+    - BP -> bp
+    - MAP -> map
+    - HR/Pulse -> pulse
+    - SpO2 -> sao2
+    - Temp -> temp
+    - Resp -> resp
+    - BFR -> bfr
+    - UFR -> ufr
+    - VP -> vp
+    - AP -> ap
+    - TMP -> tmp`;
   } else if (scanType === 'order') {
-    specificInstruction = `FOCUS: You are scanning a Dialysis Order table. 
-    Extract values from the "Prescription" or "Order" section:
-    - Duration -> duration (Convert minutes to HH:mm, e.g., 210 -> "03:30")
-    - Treatment Date -> treatmentDate (YYYY-MM-DD)
-    - Dialyzer -> dialyzer
-    - Access Method/Type -> accessMethod
-    - Blood Flow Rate / BFR -> bloodFlowRate
-    - Dialysate Flow Rate / DFR -> dialysateFlowRate
-    - UF Goal -> ufGoal
-    - Potassium / K+ -> potassium
-    - Calcium / Ca++ -> calcium
-    - Sodium / Na+ -> sodium
-    - Bicarbonate / HCO3 -> bicarb
-    - Temperature -> dialysateTemp
-    - Minimum BP -> minBP
-    - UF Profile -> ufProfile`;
+    specificInstruction = `FOCUS: Dialysis Order. 
+    Extract values: duration (HH:mm), treatmentDate (YYYY-MM-DD), dialyzer, accessType, bloodFlowRate, dialysateFlowRate, ufGoal, potassium, calcium, sodium, bicarb, dialysateTemp, minBP, ufProfile.`;
   } else if (scanType === 'patient') {
-    specificInstruction = `FOCUS: Extract Patient Demographics and Hepatitis status.
-    - MRN, CSN, Name (First/Last), DOB (YYYY-MM-DD), Gender, Allergies.
-    - Hepatitis Lab Results: Look for HBsAg, HBsAb, HBcAb. Extract values (Positive/Negative/Reactive) and dates.`;
+    specificInstruction = `FOCUS: Patient identity & Hepatitis stats.
+    - MRN, CSN, Name, DOB, Gender, Allergies.
+    - Hepatitis: HBsAg, HBsAb, HBcAb (result & date).`;
   } else if (scanType === 'all') {
-    specificInstruction = `FOCUS: Comprehensive extraction of Patient Identity, Dialysis Orders, and Vital Signs Flowsheets.
-    Extract any identifying information, treatment prescriptions, and historical vital signs sequences found in the document.`;
+    specificInstruction = `Extract Patient ID, Dialysis Orders, and Vital Signs Flowsheets.`;
   }
 
   const systemInstructions = `
-    You are a specialized medical data extraction AI. Your task is to OCR and structure clinical data from EHR system screenshots or photos.
+    Extract clinical data from the EHR image.
     ${specificInstruction}
-    
-    CRITICAL RULES:
-    1. EXCLUDE all headers or metadata from the extraction unless requested.
-    2. If a value is unreadable, use null.
-    3. Return ONLY strict JSON.
-    4. Ensure numbers are strings to preserve formatting (e.g., "120/80").
+    Return ONLY strict JSON.
   `;
 
   const patientProps = {
