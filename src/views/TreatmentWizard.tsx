@@ -221,7 +221,12 @@ const TreatmentWizard: React.FC<TreatmentWizardProps> = ({ treatment, hospital, 
         const normalizedEntry: any = {};
         if (typeof e === 'object' && e !== null) {
             for (const k in e) {
-                normalizedEntry[k.toLowerCase().replace(/[\s\-_]/g, '')] = e[k];
+                let val = e[k];
+                if (typeof val === 'string' && val.length > 15) {
+                    // Try to find the first numeric/simple component
+                    val = val.split('_')[0].split(' ')[0].substring(0, 15);
+                }
+                normalizedEntry[k.toLowerCase().replace(/[\s\-_]/g, '')] = val;
             }
         }
         return normalizedEntry;
@@ -949,7 +954,26 @@ const GenericTabContent = ({ title, modality, formData, onChange, setFormData, t
             if (selectedItems.length > 0) {
                 // If the first entry is empty, remove it
                 const currentEntries = entries.length === 1 && !entries[0].bp && !entries[0].pulse ? [] : entries;
-                onChange('monitoringEntries', [...currentEntries, ...selectedItems]);
+                
+                const mergedEntries = [...currentEntries];
+                
+                selectedItems.forEach(newItem => {
+                    const existingIdx = mergedEntries.findIndex(e => e.date === newItem.date && e.time === newItem.time);
+                    if (existingIdx !== -1) {
+                        mergedEntries[existingIdx] = { ...mergedEntries[existingIdx], ...newItem };
+                    } else {
+                        mergedEntries.push(newItem);
+                    }
+                });
+                
+                // Sort by date and time
+                mergedEntries.sort((a, b) => {
+                    const dateTimeA = new Date(`${a.date || '1970-01-01'}T${a.time || '00:00'}:00`).getTime();
+                    const dateTimeB = new Date(`${b.date || '1970-01-01'}T${b.time || '00:00'}:00`).getTime();
+                    return dateTimeA - dateTimeB;
+                });
+                
+                onChange('monitoringEntries', mergedEntries);
             }
             setExtractionPreview(null);
         };
@@ -1057,7 +1081,9 @@ const GenericTabContent = ({ title, modality, formData, onChange, setFormData, t
                                                 </div>
                                                 <div className="space-y-0.5">
                                                     <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Temp</span>
-                                                    <p className="text-[11px] font-bold text-slate-800">{item.temp || '--'}</p>
+                                                    <p className="text-[11px] font-bold text-slate-800">
+                                                        {item.temp ? `${item.temp}${parseFloat(item.temp) > 80 ? 'F' : (parseFloat(item.temp) < 50 ? 'C' : '')}` : '--'}
+                                                    </p>
                                                 </div>
                                             </div>
                                         </div>
@@ -1127,7 +1153,7 @@ const GenericTabContent = ({ title, modality, formData, onChange, setFormData, t
                                             <input type="number" step="0.1" value={entry.temp || ''} onChange={(e) => updateEntry(idx, 'temp', e.target.value)} className="flex-1 text-xs font-bold p-3 bg-slate-50 border-none rounded-xl [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
                                             {/* Smart temp detection: F or C determined by value range (<50 is C, >80 is F) */}
                                             <span className="text-[10px] font-black p-3 bg-slate-100 text-slate-400 rounded-xl min-w-[32px] text-center">
-                                                {entry.temp ? (parseFloat(entry.temp) < 50 ? 'C' : 'F') : (entry.tempUnit || 'F')}
+                                                {entry.temp ? (parseFloat(entry.temp) > 80 ? 'F' : (parseFloat(entry.temp) < 50 ? 'C' : '')) : ''}
                                             </span>
                                         </div>
                                     </td>

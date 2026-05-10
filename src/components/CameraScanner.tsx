@@ -24,8 +24,8 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ modality, scanType = 'all
         img.src = event.target?.result as string;
         img.onload = () => {
           const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 1600; 
-          const MAX_HEIGHT = 1600;
+          const MAX_WIDTH = 1200; 
+          const MAX_HEIGHT = 1200;
           let width = img.width;
           let height = img.height;
 
