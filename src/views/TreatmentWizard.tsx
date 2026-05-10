@@ -24,6 +24,7 @@ import { Hospital } from '../App';
 import { db } from '../lib/firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import CameraScanner from '../components/CameraScanner';
+import { TimeInput } from '../components/TimeInput';
 
 interface TreatmentWizardProps {
   treatment: { modality: string; patient: any };
@@ -201,6 +202,7 @@ const TreatmentWizard: React.FC<TreatmentWizardProps> = ({ treatment, hospital, 
   };
 
   const handleExtraction = (data: any) => {
+    console.log("[Extraction] Received data:", data);
     const updates: any = {};
     
     // Check if we have monitoring entries from a flowsheet
@@ -210,6 +212,8 @@ const TreatmentWizard: React.FC<TreatmentWizardProps> = ({ treatment, hospital, 
     if (!extractedEntries && data.monitoring && Array.isArray(data.monitoring)) extractedEntries = data.monitoring;
     if (!extractedEntries && data.monitoring_entries && Array.isArray(data.monitoring_entries)) extractedEntries = data.monitoring_entries;
     if (!extractedEntries && data.flowsheet && Array.isArray(data.flowsheet)) extractedEntries = data.flowsheet;
+
+    console.log("[Extraction] Extracted entries:", extractedEntries);
 
     if (extractedEntries && Array.isArray(extractedEntries) && extractedEntries.length > 0) {
       // Filter valid entries
@@ -1101,7 +1105,7 @@ const GenericTabContent = ({ title, modality, formData, onChange, setFormData, t
                                         <input type="date" value={entry.date || ''} onChange={(e) => updateEntry(idx, 'date', e.target.value)} className="w-full text-xs font-bold p-3 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-brand-primary" />
                                     </td>
                                     <td className="p-2 sticky left-0 bg-white z-10 border-r-2 border-slate-100 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.12)]">
-                                        <input type="time" value={entry.time || ''} step="60" onChange={(e) => updateEntry(idx, 'time', e.target.value)} className="w-full text-xs font-bold p-3 bg-white border border-slate-100 rounded-xl focus:ring-2 focus:ring-brand-primary" />
+                                        <TimeInput value={entry.time || ''} onChange={(val) => updateEntry(idx, 'time', val)} className="w-full text-xs font-bold p-3 bg-white border border-slate-100 rounded-xl focus:ring-2 focus:ring-brand-primary" />
                                     </td>
                                     <td className="p-2">
                                         <input type="text" value={entry.bp || ''} onChange={(e) => updateEntry(idx, 'bp', e.target.value)} placeholder="120/80" className="w-full text-xs font-bold p-3 bg-slate-50 border-none rounded-xl focus:ring-2 focus:ring-brand-primary" />
@@ -1382,12 +1386,18 @@ const Field = ({ label, type = 'text', fullWidth = false, value, onChange, class
                 onChange={(e) => onChange && onChange(e.target.value)}
                 className={`input-field min-h-[120px] py-4 bg-slate-50/30 border-slate-100 focus:bg-white focus:shadow-lg transition-all ${className}`} 
             />
+        ) : type === 'time' ? (
+            <TimeInput 
+                value={value || ''}
+                onChange={(val) => onChange && onChange(val)}
+                className={`input-field py-4 bg-slate-50/30 border border-slate-100 focus:bg-white focus:shadow-lg transition-all px-6 rounded-2xl ${className}`}
+            />
         ) : (
             <input 
                 type={type} 
                 value={value || ''}
                 onChange={(e) => onChange && onChange(e.target.value)}
-                className={`input-field py-4 bg-slate-50/30 border-slate-100 focus:bg-white focus:shadow-lg transition-all px-6 rounded-2xl ${className}`} 
+                className={`input-field py-4 bg-slate-50/30 border border-slate-100 focus:bg-white focus:shadow-lg transition-all px-6 rounded-2xl ${className}`} 
                 placeholder={`Enter ${label}...`} 
             />
         )}
