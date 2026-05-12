@@ -897,7 +897,11 @@ const GenericTabContent = ({ title, modality, formData, onChange, setFormData, t
     }
 
     if (title === 'Tx Monitoring & Administrations' || title === 'Treatment') {
-        const entries = formData.monitoringEntries || [];
+        const entries = [...(formData.monitoringEntries || [])].sort((a, b) => {
+            const timeA = new Date(`${a.date || '1970-01-01'}T${a.time || '00:00'}`).getTime();
+            const timeB = new Date(`${b.date || '1970-01-01'}T${b.time || '00:00'}`).getTime();
+            return timeA - timeB;
+        });
         
         const updateEntry = (idx: number, field: string, val: any) => {
             const newEntries = [...entries];
@@ -1105,12 +1109,12 @@ const GenericTabContent = ({ title, modality, formData, onChange, setFormData, t
                                 <th className="p-4 text-[10px] font-black uppercase text-slate-400 text-left w-[80px]">P</th>
                                 <th className="p-4 text-[10px] font-black uppercase text-slate-400 text-left w-[80px]">RR</th>
                                 <th className="p-4 text-[10px] font-black uppercase text-slate-400 text-left w-[80px]">SaO2</th>
-                                <th className="p-4 text-[10px] font-black uppercase text-slate-400 text-left w-[100px]">Temp</th>
+                                <th className="p-4 text-[10px] font-black uppercase text-slate-400 text-left w-[80px]">Temp</th>
 
                                 <th className="p-4 text-[10px] font-black uppercase text-slate-400 text-left w-[100px]">BFR</th>
                                 <th className="p-4 text-[10px] font-black uppercase text-slate-400 text-left w-[100px]">DFR</th>
-                                <th className="p-4 text-[10px] font-black uppercase text-slate-400 text-left w-[100px]">AP</th>
                                 <th className="p-4 text-[10px] font-black uppercase text-slate-400 text-left w-[100px]">VP</th>
+                                <th className="p-4 text-[10px] font-black uppercase text-slate-400 text-left w-[100px]">AP</th>
                                 <th className="p-4 text-[10px] font-black uppercase text-slate-400 text-left w-[90px]">TMP</th>
                                 <th className="p-4 text-[10px] font-black uppercase text-slate-400 text-left w-[90px]">UFR</th>
                                 <th className="p-4 text-[10px] font-black uppercase text-slate-400 text-left w-[90px]">BVC</th>
@@ -1150,9 +1154,15 @@ const GenericTabContent = ({ title, modality, formData, onChange, setFormData, t
                                     </td>
                                     <td className="p-2">
                                         <div className="flex gap-1 items-center">
-                                            <input type="number" step="0.1" value={entry.temp || ''} onChange={(e) => updateEntry(idx, 'temp', e.target.value)} className="flex-1 text-xs font-bold p-3 bg-slate-50 border-none rounded-xl [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                                            <input type="number" step="0.1" value={entry.temp || ''} onChange={(e) => {
+                                                const val = e.target.value;
+                                                // Limit to 1 decimal place
+                                                if (/^\d*\.?\d?$/.test(val)) {
+                                                    updateEntry(idx, 'temp', val);
+                                                }
+                                            }} className="w-full text-xs font-bold p-3 bg-slate-50 border-none rounded-xl [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
                                             {/* Smart temp detection: F or C determined by value range (<50 is C, >80 is F) */}
-                                            <span className="text-[10px] font-black p-3 bg-slate-100 text-slate-400 rounded-xl min-w-[32px] text-center">
+                                            <span className="text-[10px] font-black p-3 bg-slate-100 text-slate-400 rounded-xl min-w-[20px] text-center">
                                                 {entry.temp ? (parseFloat(entry.temp) > 80 ? 'F' : (parseFloat(entry.temp) < 50 ? 'C' : '')) : ''}
                                             </span>
                                         </div>
@@ -1165,10 +1175,10 @@ const GenericTabContent = ({ title, modality, formData, onChange, setFormData, t
                                         <input type="number" value={entry.dfr || ''} onChange={(e) => updateEntry(idx, 'dfr', e.target.value)} className="w-full text-xs font-bold p-3 bg-slate-50 border-none rounded-xl [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
                                     </td>
                                     <td className="p-2">
-                                        <input type="number" value={entry.ap || ''} onChange={(e) => updateEntry(idx, 'ap', e.target.value)} className="w-full text-xs font-bold p-3 bg-slate-50 border-none rounded-xl [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                                        <input type="number" value={entry.vp || ''} onChange={(e) => updateEntry(idx, 'vp', e.target.value)} className="w-full text-xs font-bold p-3 bg-slate-50 border-none rounded-xl [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
                                     </td>
                                     <td className="p-2">
-                                        <input type="number" value={entry.vp || ''} onChange={(e) => updateEntry(idx, 'vp', e.target.value)} className="w-full text-xs font-bold p-3 bg-slate-50 border-none rounded-xl [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                                        <input type="number" value={entry.ap || ''} onChange={(e) => updateEntry(idx, 'ap', e.target.value)} className="w-full text-xs font-bold p-3 bg-slate-50 border-none rounded-xl [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
                                     </td>
                                     <td className="p-2">
                                         <input type="number" value={entry.tmp || ''} onChange={(e) => updateEntry(idx, 'tmp', e.target.value)} className="w-full text-xs font-bold p-3 bg-slate-50 border-none rounded-xl [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />

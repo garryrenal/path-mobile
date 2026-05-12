@@ -106,13 +106,22 @@ const AddPatientModal: React.FC<AddPatientModalProps> = ({ isOpen, onClose, hosp
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="col-span-2 space-y-1.5">
+                  <div className="col-span-1 space-y-1.5">
                     <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">MRN</label>
                     <input 
                       value={patientData.mrn}
                       onChange={(e) => setPatientData({...patientData, mrn: e.target.value})}
                       className="input-field py-3 text-lg font-mono font-bold" 
                       placeholder="e.g. 123456" 
+                    />
+                  </div>
+                  <div className="col-span-1 space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase ml-1 italic">(Optional) CSN / Adm No.</label>
+                    <input 
+                      value={patientData.csn}
+                      onChange={(e) => setPatientData({...patientData, csn: e.target.value})}
+                      className="input-field py-3 italic" 
+                      placeholder="e.g. 987654321" 
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -158,15 +167,6 @@ const AddPatientModal: React.FC<AddPatientModalProps> = ({ isOpen, onClose, hosp
                       onChange={(e) => setPatientData({...patientData, allergies: e.target.value})}
                       className="input-field py-3 text-red-600 font-bold" 
                       placeholder="None" 
-                    />
-                  </div>
-                  <div className="col-span-2 space-y-1.5">
-                    <label className="text-[10px] font-bold text-slate-500 uppercase ml-1 italic">(Optional) CSN / Adm No.</label>
-                    <input 
-                      value={patientData.csn}
-                      onChange={(e) => setPatientData({...patientData, csn: e.target.value})}
-                      className="input-field py-3 italic" 
-                      placeholder="e.g. 987654321" 
                     />
                   </div>
                 </div>

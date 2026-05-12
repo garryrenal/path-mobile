@@ -97,9 +97,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ selectedHospital, onHospitalS
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
             Recent Records <span className="text-sm font-medium text-slate-400 font-mono">(last 72h)</span>
           </h1>
-          <button onClick={() => onHospitalSelect(null as any)} className="text-xs font-bold text-brand-primary flex items-center gap-1 hover:underline">
-            Switch Hospital
-          </button>
+          <div className="text-xs font-bold text-slate-400 flex items-center gap-1 cursor-not-allowed">
+            Hospital Locked: {selectedHospital.name}
+          </div>
         </div>
         <button 
           onClick={() => setIsAddModalOpen(true)}

@@ -33,16 +33,28 @@ export async function extractClinicalData(
        - Blood Flow / BFR -> bfr
        - Ultrafiltration / UFR -> ufr
     4. If a value for a specific time is missing or unreadable, do NOT include that key or use null.
-    5. Only extract ACTUAL data points. Skip empty columns/rows.`;
+    5. Only extract ACTUAL data points. Skip empty columns/rows.
+    6. CRITICAL: Merge ALL variables for the SAME timestamp (date + time) into a SINGLE object. You MUST output exactly ONE object for each unique time point per date. Do not create separate objects for different variables at the same time. If a variable is not present for a time point, simply exclude that field from the object.
+    7. ROBUST INFERENCE: If row labels are scrolled off-screen or missing, INFER the metric from standard ranges:
+       - '120/80' format = bp
+       - Negative values (e.g. -160, -200) = ap
+       - Positive values 100-250 closely mimicking negative ones = vp
+       - Values 300-450 = bfr
+       - Values 40-100 (often right before UF values or around VP/AP) = tmp
+       - Incrementing values per column (e.g. 1260 -> 1670 -> 2090) = accumulated UF (do not map to UFR rate, or map to a generic note if needed)
+       - Values 600-800 = usually ufr
+       - Values 90-100 (top rows) = sao2 or pulse
+       - Value 12-25 = resp`;
   } else if (scanType === 'order') {
     specificInstruction = `FOCUS: Dialysis Order. 
     Extract values: duration (format HH:mm), treatmentDate (YYYY-MM-DD), dialyzer, accessType, bloodFlowRate, dialysateFlowRate, ufGoal, potassium, calcium, sodium, bicarb, dialysateTemp, minBP, ufProfile.`;
   } else if (scanType === 'patient') {
     specificInstruction = `FOCUS: Patient identity & Hepatitis stats.
-    Extract: MRN, CSN, Name, DOB (YYYY-MM-DD), Gender, Allergies.
+    Extract: MRN, Name, DOB (YYYY-MM-DD), Gender, Allergies.
+    CSN: Search in the right-lower quadrant. Extract the 9-digit numeric value immediately following the label "CSN:" or "Adm No.:". DO NOT mistake this for the HAR number or other nearby numbers. Ensure "csn" in the JSON matches this value exactly.
     Hepatitis Labs: HBsAg, HBsAb, HBcAb (result & date).`;
   } else if (scanType === 'all') {
-    specificInstruction = `Comprehensive extraction of Patient Identity, Dialysis Orders, and Vital Signs Flowsheets.`;
+    specificInstruction = `Comprehensive extraction of Patient Identity. For CSN: Search in the right-lower quadrant. Extract the 9-digit numeric value immediately following the label "CSN:" or "Adm No.:". DO NOT mistake this for the HAR number or other nearby numbers. Ensure "csn" in the JSON matches this value exactly. Dialysis Orders, and Vital Signs Flowsheets.`;
   }
 
   const systemInstructions = `
